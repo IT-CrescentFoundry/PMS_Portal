@@ -33,6 +33,18 @@ npm install
 npm run dev
 ```
 
-**Backend**
+**Backend** (Windows PowerShell, from `PMS_Backend/`)
 
-Configure Python and the virtual environment, install the backend dependencies, and start the FastAPI development server as the backend setup progresses.
+```powershell
+python -m venv PMS_venv
+.\PMS_venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+Copy-Item .env.example .env        # then set DB_PASSWORD etc. (never commit .env)
+
+alembic upgrade head               # create/upgrade the MySQL schema
+python -m app.seed                 # load synthetic demo data (safe to rerun)
+python -m pytest                   # run tests (rolled back; leaves no data)
+uvicorn app.main:app --reload      # API docs at http://127.0.0.1:8000/docs
+```
+
+Schema design and approved business rules: [docs/database-design.md](docs/database-design.md).

@@ -1,9 +1,10 @@
 # Frontend dependencies and builds
-frontend/node_modules/
-frontend/dist/
+PMS_Frontend/node_modules/
+PMS_Frontend/dist/
 
 # Python virtual environment and cache
-backend/.venv/
+PMS_Backend/PMS_venv/
+.venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
