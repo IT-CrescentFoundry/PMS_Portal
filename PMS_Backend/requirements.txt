@@ -1,0 +1,10 @@
+# Direct backend dependencies, pinned to the versions verified in PMS_venv.
+# Install with: python -m pip install -r requirements.txt
+fastapi[standard]==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.1
+SQLAlchemy==2.1.4
+alembic==1.20.0
+PyMySQL==1.2.3
+cryptography==50.0.2  # required by PyMySQL for MySQL 8 caching_sha2_password auth
+python-dotenv==1.2.4
