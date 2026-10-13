@@ -128,7 +128,8 @@ Rules:
 | GET | `/api/plants/{id}` | `org:read` | units at the plant, within access |
 | GET | `/api/departments` | `org:read` | `plant_id`, `include_inactive` |
 | GET | `/api/departments/{id}` | `org:read` | plants where it exists, within access |
-| GET | `/api/employees` | `org:read` | `plant_id`, `department_id`, `primary_only`, `include_inactive`, `as_of`, `limit` (1–200), `offset` |
+| GET | `/api/org-units` | `org:read` | every accessible plant-department unit in one call; `plant_id`, `department_id`, `include_inactive` |
+| GET | `/api/employees` | `org:read` | `plant_id`, `department_id`, `primary_only`, `include_inactive`, `search` (code or name contains, ≤ 100 chars), `as_of`, `limit` (1–200), `offset` |
 | GET | `/api/employees/{id}` | `org:read` or own record | `as_of` |
 | GET | `/api/reports/headcount` | `org:read` | `plant_id`, `department_id`, `as_of` |
 

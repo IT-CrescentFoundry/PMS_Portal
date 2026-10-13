@@ -8,6 +8,7 @@ from app.dependencies import get_db
 from app.schemas.organization import (
     DepartmentDetail,
     DepartmentRead,
+    OrgUnitRead,
     PlantDetail,
     PlantRead,
 )
@@ -44,6 +45,33 @@ def get_plant(
         **PlantRead.model_validate(plant).model_dump(),
         units=[org.to_unit_read(u) for u in units],
     )
+
+
+@router.get("/org-units", response_model=list[OrgUnitRead])
+def list_org_units(
+    db: DbSession,
+    scope: OrgScope,
+    plant_id: Annotated[int | None, Query(description="Omit for all plants.")] = None,
+    department_id: Annotated[
+        int | None, Query(description="Omit for all departments.")
+    ] = None,
+    include_inactive: IncludeInactive = False,
+):
+    """Plant-department units the caller can see (e.g. Quality — Plant A),
+    in one request: lets clients show plant/department associations and
+    offer only valid filter combinations."""
+    if plant_id is not None:
+        org.get_plant(db, plant_id, access=scope)  # 404 if unknown/out of scope
+    if department_id is not None:
+        org.get_department(db, department_id, access=scope)
+    units = org.list_units(
+        db,
+        access=scope,
+        plant_id=plant_id,
+        department_id=department_id,
+        include_inactive=include_inactive,
+    )
+    return [org.to_unit_read(u) for u in units]
 
 
 @router.get("/departments", response_model=list[DepartmentRead])

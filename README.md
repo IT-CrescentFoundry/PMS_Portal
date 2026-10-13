@@ -24,14 +24,17 @@ Currently under development as a demonstration project using synthetic data. SAP
 
 ## Getting Started
 
-The frontend and backend are developed and run independently during local development.
+The frontend and backend run as two local servers. Always open the portal at
+**http://localhost:5173** (not `127.0.0.1`): the secure session cookie depends on it.
 
-**Frontend**
-```bash
-cd PMS_Frontend
+**Frontend** (from `PMS_Frontend/`, with the backend running on `localhost:8000`)
+```powershell
 npm install
-npm run dev
+npm run dev            # http://localhost:5173
+npm test               # component/unit tests (mocked API)
+npm run test:e2e       # browser tests against the real local backend and demo seed
 ```
+See [PMS_Frontend/README.md](PMS_Frontend/README.md) for configuration and structure.
 
 **Backend** (Windows PowerShell, from `PMS_Backend/`)
 
@@ -45,7 +48,7 @@ Copy-Item .env.example .env        # then set DB_PASSWORD, AUTH_SECRET_KEY, DEMO
 alembic upgrade head               # create/upgrade the MySQL schema
 python -m app.seed                 # synthetic demo data + demo passwords (safe to rerun)
 python -m pytest                   # tests run against TEST_DB_NAME (pms_test), rolled back
-uvicorn app.main:app --reload      # API docs at http://localhost:8000/docs
+uvicorn app.main:app --reload --host localhost --port 8000   # API docs at http://localhost:8000/docs
 ```
 
 One-time MySQL setup for tests (as an administrator):

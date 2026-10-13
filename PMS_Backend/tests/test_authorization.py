@@ -245,9 +245,42 @@ def test_unit_scope_headcount_preserves_primary_vs_supporting(quality_p2, org):
     ]
 
 
+# --- org-units: the same scope rules ------------------------------------------------
+
+def unit_pairs(client, **params):
+    resp = client.get("/api/org-units", params=params)
+    assert resp.status_code == 200, resp.text
+    return [(u["plant"]["code"], u["department"]["code"]) for u in resp.json()]
+
+
+def test_org_units_follow_each_scope_type(plant_p1, quality_head, quality_p2):
+    assert unit_pairs(plant_p1) == [("TST-P1", "TST-M"), ("TST-P1", "TST-Q")]
+    assert unit_pairs(quality_head) == [("TST-P1", "TST-Q"), ("TST-P2", "TST-Q")]
+    assert unit_pairs(quality_p2) == [("TST-P2", "TST-Q")]
+
+
+def test_org_units_parameter_bypass_is_blocked(quality_p2, org):
+    assert quality_p2.get("/api/org-units", params={"plant_id": org.plants["P1"].id}).status_code == 404
+    assert quality_p2.get(
+        "/api/org-units", params={"department_id": org.departments["M"].id}
+    ).status_code == 404
+
+
+def test_employee_search_cannot_reach_out_of_scope_people(quality_p2, org):
+    # TST004 exists, but only at P1/M: searching for it must find nothing.
+    body = quality_p2.get("/api/employees", params={"search": "TST004", "as_of": AS_OF}).json()
+    assert body["items"] == [] and body["total"] == 0
+
+
 # --- no effective scope ------------------------------------------------------------
 
-ORG_PATHS = ["/api/plants", "/api/departments", "/api/employees", "/api/reports/headcount"]
+ORG_PATHS = [
+    "/api/plants",
+    "/api/departments",
+    "/api/org-units",
+    "/api/employees",
+    "/api/reports/headcount",
+]
 
 
 @pytest.mark.parametrize(

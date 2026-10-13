@@ -13,7 +13,7 @@ has_primary_assignment flag still tells them whether a primary exists.
 from collections import defaultdict
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import Department, Employee, EmployeeAssignment, Plant, PlantDepartment
@@ -76,6 +76,7 @@ def list_employees(
     department_id: int | None = None,
     primary_only: bool = False,
     include_inactive: bool = False,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> EmployeeListResponse:
@@ -84,6 +85,8 @@ def list_employees(
     Each person appears once, however many assignments they hold in scope.
     primary_only=True keeps only employees whose *primary* assignment is in
     scope, i.e. exactly the people counted in that scope's headcount.
+    search narrows the result (code or name contains, case-insensitive); it
+    never widens access.
     """
     # 404 for unknown ids and for ids outside the caller's access.
     resolve_scope_label(db, plant_id, department_id, access)
@@ -91,6 +94,17 @@ def list_employees(
     stmt = select(Employee)
     if not include_inactive:
         stmt = stmt.where(Employee.is_active)
+    term = (search or "").strip()
+    if term:
+        # Escape LIKE wildcards so user input is matched literally.
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        stmt = stmt.where(
+            or_(
+                Employee.employee_code.like(pattern, escape="\\"),
+                Employee.full_name.like(pattern, escape="\\"),
+            )
+        )
     has_filter = plant_id is not None or department_id is not None or primary_only
     if has_filter or not access.is_global:
         in_scope_ids = (

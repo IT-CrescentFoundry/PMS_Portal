@@ -20,6 +20,7 @@ PROTECTED_PATHS = [
     "/api/plants/1",
     "/api/departments",
     "/api/departments/1",
+    "/api/org-units",
     "/api/employees",
     "/api/employees/1",
     "/api/reports/headcount",

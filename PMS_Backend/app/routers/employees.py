@@ -33,6 +33,10 @@ def list_employees(
         Query(description="Only employees whose primary assignment is in scope."),
     ] = False,
     include_inactive: bool = False,
+    search: Annotated[
+        str | None,
+        Query(max_length=100, description="Employee code or name contains (case-insensitive)."),
+    ] = None,
     as_of: AsOf = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -45,6 +49,7 @@ def list_employees(
         department_id=department_id,
         primary_only=primary_only,
         include_inactive=include_inactive,
+        search=search,
         limit=limit,
         offset=offset,
     )

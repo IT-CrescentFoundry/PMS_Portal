@@ -93,6 +93,33 @@ def test_employee_detail_keeps_assignment_history(client, org):
     assert len(body["current_assignments"]) == 1
 
 
+def test_employee_search_matches_code_or_name(client, org):
+    by_code = client.get("/api/employees", params={"search": "tst002", "as_of": AS_OF}).json()
+    assert codes(by_code["items"]) == ["TST002"]
+    by_name = client.get("/api/employees", params={"search": "Person 00", "as_of": AS_OF}).json()
+    assert codes(by_name["items"]) == ["TST001", "TST002", "TST003", "TST004"]
+    assert by_name["total"] == 4
+
+
+def test_employee_search_treats_wildcards_literally(client, org):
+    for term in ("%", "_", "TST\\"):
+        body = client.get("/api/employees", params={"search": term, "as_of": AS_OF}).json()
+        assert body["items"] == [], term
+
+
+def test_employee_search_combines_with_scope_filters(client, org):
+    body = client.get("/api/employees", params={
+        "search": "Person", "department_id": org.departments["Q"].id,
+        "plant_id": org.plants["P2"].id, "as_of": AS_OF}).json()
+    assert codes(body["items"]) == ["TST001", "TST002", "TST003"]
+
+
+def test_org_units_lists_plant_department_pairs(client, org):
+    body = client.get("/api/org-units", params={"department_id": org.departments["Q"].id}).json()
+    assert [(u["plant"]["code"], u["department"]["code"]) for u in body] == [
+        ("TST-P1", "TST-Q"), ("TST-P2", "TST-Q")]
+
+
 # --- errors and validation --------------------------------------------------
 
 def test_unknown_ids_return_404(client):
@@ -105,3 +132,4 @@ def test_unknown_ids_return_404(client):
 def test_invalid_query_parameters_return_422(client):
     assert client.get("/api/employees", params={"limit": 0}).status_code == 422
     assert client.get("/api/employees", params={"as_of": "not-a-date"}).status_code == 422
+    assert client.get("/api/employees", params={"search": "x" * 101}).status_code == 422
