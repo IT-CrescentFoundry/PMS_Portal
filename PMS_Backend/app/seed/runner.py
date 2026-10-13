@@ -6,6 +6,7 @@ updated to match the seed definition. Nothing is ever deleted, and records
 not mentioned in the seed are left untouched. Everything runs in a single
 transaction: either the whole seed applies, or nothing does.
 """
+import os
 from collections import Counter
 from pathlib import Path
 from typing import Any, TypeVar
@@ -16,6 +17,12 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth.passwords import (
+    PasswordPolicyError,
+    hash_password,
+    validate_new_password,
+    verify_password,
+)
 from app.db import Base, SessionLocal, engine
 from app.models import (
     Department,
@@ -90,7 +97,9 @@ def _without(record: dict[str, Any], *keys: str) -> dict[str, Any]:
     return {k: v for k, v in record.items() if k not in keys}
 
 
-def seed(session: Session) -> Counter:
+def seed(session: Session, demo_password: str | None = None) -> Counter:
+    """Upsert all demo records. With demo_password, every demo account gets
+    that password (stored only as an Argon2id hash)."""
     stats: Counter = Counter()
 
     plants = {
@@ -162,6 +171,14 @@ def seed(session: Session) -> Counter:
         )
         for u in data.USERS
     }
+    if demo_password is not None:
+        for user in users.values():
+            # Re-hash only when needed, so reruns stay "unchanged".
+            if user.password_hash and verify_password(user.password_hash, demo_password):
+                stats[("users (password)", "unchanged")] += 1
+            else:
+                user.password_hash = hash_password(demo_password)
+                stats[("users (password)", "updated")] += 1
 
     for username, role_code, scopes in data.USER_ROLES:
         user_role = upsert(
@@ -201,7 +218,19 @@ def seed(session: Session) -> Counter:
     return stats
 
 
+def demo_password_from_env() -> str | None:
+    """DEMO_USER_PASSWORD from PMS_Backend/.env (never from source code)."""
+    password = os.getenv("DEMO_USER_PASSWORD") or None
+    if password is not None:
+        try:
+            validate_new_password(password)
+        except PasswordPolicyError as exc:
+            raise SeedError(f"DEMO_USER_PASSWORD rejected: {exc}") from None
+    return password
+
+
 def run() -> Counter:
     ensure_schema_at_head()
+    demo_password = demo_password_from_env()
     with SessionLocal() as session, session.begin():  # commit, or roll back on error
-        return seed(session)
+        return seed(session, demo_password)

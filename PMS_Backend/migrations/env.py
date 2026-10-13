@@ -16,9 +16,12 @@ import app.models  # noqa: F401  (registers every model on Base.metadata)
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
+# Interpret the config file for Python logging. Callers that already manage
+# logging (e.g. the pytest suite) can opt out with
+# config.attributes["configure_logger"] = False.
+if config.config_file_name is not None and config.attributes.get(
+    "configure_logger", True
+):
     fileConfig(config.config_file_name)
 
 # Metadata of all PMS models, used by 'alembic revision --autogenerate'.

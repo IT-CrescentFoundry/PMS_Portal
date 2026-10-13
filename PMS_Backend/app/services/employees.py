@@ -1,3 +1,15 @@
+"""Employee listings and detail, filtered by the caller's access.
+
+Visibility rules:
+  * List: an employee appears if they have a CURRENT assignment inside
+    (requested scope ∩ access). Each person appears once.
+  * Detail: visible if ANY assignment (current or past) is inside access, so
+    a plant keeps legitimate access to the history of people who worked
+    there. Only in-scope assignments are returned.
+  * Self-service: callers allowed to read their own record see all of it.
+Assignments outside the caller's access are never returned; the
+has_primary_assignment flag still tells them whether a primary exists.
+"""
 from collections import defaultdict
 from datetime import date
 
@@ -16,6 +28,7 @@ from app.schemas.employee import (
 from app.schemas.organization import DepartmentRef, PlantRef
 from app.services.errors import NotFoundError
 from app.services.scope import (
+    AccessScope,
     current_on,
     in_scope,
     is_current,
@@ -49,9 +62,15 @@ def to_assignment_read(assignment: EmployeeAssignment, as_of: date) -> Assignmen
     )
 
 
+def _accessible(assignment: EmployeeAssignment, access: AccessScope) -> bool:
+    unit = assignment.plant_department
+    return access.allows_unit(unit.plant_id, unit.department_id)
+
+
 def list_employees(
     db: Session,
     *,
+    access: AccessScope,
     as_of: date,
     plant_id: int | None = None,
     department_id: int | None = None,
@@ -60,22 +79,28 @@ def list_employees(
     limit: int = 50,
     offset: int = 0,
 ) -> EmployeeListResponse:
-    """Unique employees with a current assignment in the scope.
+    """Unique employees with a current assignment in (requested scope ∩ access).
 
     Each person appears once, however many assignments they hold in scope.
     primary_only=True keeps only employees whose *primary* assignment is in
     scope, i.e. exactly the people counted in that scope's headcount.
     """
-    resolve_scope_label(db, plant_id, department_id)  # 404 for unknown ids
+    # 404 for unknown ids and for ids outside the caller's access.
+    resolve_scope_label(db, plant_id, department_id, access)
 
     stmt = select(Employee)
     if not include_inactive:
         stmt = stmt.where(Employee.is_active)
-    if plant_id is not None or department_id is not None or primary_only:
+    has_filter = plant_id is not None or department_id is not None or primary_only
+    if has_filter or not access.is_global:
         in_scope_ids = (
             select(EmployeeAssignment.employee_id)
             .join(EmployeeAssignment.plant_department)
-            .where(current_on(as_of), *unit_conditions(plant_id, department_id))
+            .where(
+                current_on(as_of),
+                *unit_conditions(plant_id, department_id),
+                access.unit_condition(),
+            )
         )
         if primary_only:
             in_scope_ids = in_scope_ids.where(EmployeeAssignment.is_primary)
@@ -108,10 +133,12 @@ def list_employees(
     for emp in employees:
         current = by_employee[emp.id]
         primary = next((a for a in current if a.is_primary), None)
+        visible_primary = primary if primary and _accessible(primary, access) else None
         matching = [
             a
             for a in current
-            if in_scope(a.plant_department, plant_id, department_id)
+            if _accessible(a, access)
+            and in_scope(a.plant_department, plant_id, department_id)
             and (a.is_primary or not primary_only)
         ]
         items.append(
@@ -121,7 +148,10 @@ def list_employees(
                 full_name=emp.full_name,
                 email=emp.email,
                 is_active=emp.is_active,
-                primary_assignment=to_assignment_read(primary, as_of) if primary else None,
+                has_primary_assignment=primary is not None,
+                primary_assignment=(
+                    to_assignment_read(visible_primary, as_of) if visible_primary else None
+                ),
                 matching_assignments=[to_assignment_read(a, as_of) for a in matching],
             )
         )
@@ -131,7 +161,19 @@ def list_employees(
     )
 
 
-def get_employee(db: Session, employee_id: int, as_of: date) -> EmployeeDetail:
+def get_employee(
+    db: Session,
+    employee_id: int,
+    as_of: date,
+    *,
+    access: AccessScope,
+    self_employee_id: int | None = None,
+) -> EmployeeDetail:
+    """One employee, with only the assignments the caller may see.
+
+    self_employee_id: the caller's own employee id when they may read their
+    own record (full history), otherwise None.
+    """
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise NotFoundError("Employee", employee_id)
@@ -142,8 +184,16 @@ def get_employee(db: Session, employee_id: int, as_of: date) -> EmployeeDetail:
         .options(*_ASSIGNMENT_LOAD)
         .order_by(EmployeeAssignment.effective_from, EmployeeAssignment.id)
     ).all()
-    history_read = [to_assignment_read(a, as_of) for a in history]
 
+    if employee_id == self_employee_id:
+        visible = list(history)
+    else:
+        visible = [a for a in history if _accessible(a, access)]
+        if not visible and not access.is_global:
+            # Same error as a missing employee: existence is not revealed.
+            raise NotFoundError("Employee", employee_id)
+
+    visible_read = [to_assignment_read(a, as_of) for a in visible]
     return EmployeeDetail(
         id=employee.id,
         employee_code=employee.employee_code,
@@ -153,6 +203,7 @@ def get_employee(db: Session, employee_id: int, as_of: date) -> EmployeeDetail:
         date_of_exit=employee.date_of_exit,
         is_active=employee.is_active,
         as_of=as_of,
-        current_assignments=[a for a in history_read if a.is_current],
-        assignment_history=history_read,
+        has_primary_assignment=any(a.is_primary and is_current(a, as_of) for a in history),
+        current_assignments=[a for a in visible_read if a.is_current],
+        assignment_history=visible_read,
     )

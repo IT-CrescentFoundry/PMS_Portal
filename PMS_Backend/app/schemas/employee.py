@@ -34,10 +34,14 @@ class EmployeeSummary(ORMModel):
     full_name: str
     email: str | None
     is_active: bool
-    # Current primary assignment: where this person is counted for headcount.
+    # True when a current primary assignment exists anywhere, even if it is
+    # outside the caller's access (then primary_assignment is null).
+    has_primary_assignment: bool
+    # Current primary assignment (where this person is counted for headcount),
+    # shown only when it is inside the caller's access.
     primary_assignment: AssignmentRead | None
-    # Current assignments that fall inside the requested plant/department
-    # filter (all current assignments when no filter is given).
+    # Current assignments inside both the requested plant/department filter
+    # and the caller's access.
     matching_assignments: list[AssignmentRead]
 
 
@@ -58,5 +62,9 @@ class EmployeeDetail(ORMModel):
     date_of_exit: date | None
     is_active: bool
     as_of: date
+    # See EmployeeSummary.has_primary_assignment.
+    has_primary_assignment: bool
+    # Both lists contain only assignments inside the caller's access (the
+    # employee's own record shows everything).
     current_assignments: list[AssignmentRead]
-    assignment_history: list[AssignmentRead]  # every assignment, oldest first
+    assignment_history: list[AssignmentRead]  # oldest first

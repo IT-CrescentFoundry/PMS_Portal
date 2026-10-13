@@ -87,6 +87,9 @@ A CHECK constraint enforces this shape. A composite foreign key ensures that a
 `PLANT_DEPARTMENT` scope names a department that actually exists at that
 plant. A role grant with no scope rows grants no data access (deny by default).
 
+These scopes are enforced on every API endpoint. The role capabilities and
+the rules for combining multiple roles are in [api.md](api.md#authorization-model).
+
 ### Reporting scopes
 
 Both report types are filters over the same `plant_departments` rows. There

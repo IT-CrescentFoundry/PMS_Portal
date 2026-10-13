@@ -1,39 +1,20 @@
 import os
-from pathlib import Path
 
-from dotenv import load_dotenv
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-# Load PMS_Backend/.env regardless of the terminal's working directory.
-# Variables already set in the process environment take precedence.
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(ENV_FILE)
+from app.config import env_int, require_env
 
-
-def _require_env(name: str) -> str:
-    """Return a required setting, failing fast instead of guessing a value.
-
-    A silent fallback (e.g. a default database name) could point the app at
-    the wrong database, so missing settings are treated as a startup error.
-    """
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(
-            f"Missing required environment variable '{name}'. "
-            f"Copy PMS_Backend/.env.example to PMS_Backend/.env and set it."
-        )
-    return value
-
-
+# Required settings have no fallback: a silent default (e.g. a default
+# database name) could point the app at the wrong database.
 DATABASE_URL = URL.create(
     drivername="mysql+pymysql",
-    username=_require_env("DB_USER"),
-    password=_require_env("DB_PASSWORD"),
+    username=require_env("DB_USER"),
+    password=require_env("DB_PASSWORD"),
     host=os.getenv("DB_HOST", "localhost"),
-    port=int(os.getenv("DB_PORT", "3306")),
-    database=_require_env("DB_NAME"),
+    port=env_int("DB_PORT", 3306),
+    database=require_env("DB_NAME"),
     query={"charset": "utf8mb4"},
 )
 

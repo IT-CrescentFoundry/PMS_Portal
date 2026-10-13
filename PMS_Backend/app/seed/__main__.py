@@ -19,6 +19,13 @@ def main() -> int:
             f"{stats[(table, 'updated')]:>9}{stats[(table, 'unchanged')]:>11}"
         )
     print("Seed committed.")
+    if ("users (password)", "updated") not in stats and (
+        "users (password)", "unchanged"
+    ) not in stats:
+        print(
+            "Note: DEMO_USER_PASSWORD is not set, so demo accounts have no password "
+            "and cannot sign in. Set it in PMS_Backend/.env and rerun."
+        )
     return 0
 
 

@@ -1,29 +1,95 @@
 """Test fixtures.
 
-Tests run against the configured MySQL database (`pms`) but every test runs
-inside a transaction that is ROLLED BACK afterwards, so no test data is ever
-committed and existing (seeded) data is left untouched. Test records use
-"TST" codes so they cannot collide with the demo seed.
+Isolation: the suite runs ONLY against the dedicated test database named by
+TEST_DB_NAME (e.g. pms_test), never the development database. Before any app
+module is imported, this file redirects DB_NAME to the test database, and the
+session fixture verifies the live connection before migrating the schema.
+
+On top of that, every test runs inside a transaction that is ROLLED BACK
+afterwards, so test data is never committed. Test records use "TST" codes.
 """
-from collections.abc import Iterator
-from dataclasses import dataclass, field
-from datetime import date
+import os
+import secrets
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
-from app.db import engine
-from app.dependencies import get_db
-from app.main import app
-from app.models import (
+from tests import ENV_FILE
+
+# --- Redirect the application to the test database (must run first) -------
+load_dotenv(ENV_FILE)
+_DEV_DB_NAME = os.getenv("DB_NAME", "")
+TEST_DB_NAME = os.getenv("TEST_DB_NAME", "")
+if not TEST_DB_NAME:
+    raise RuntimeError(
+        "TEST_DB_NAME is not set. Add TEST_DB_NAME=pms_test to PMS_Backend/.env "
+        "(see .env.example). Tests never run against the development database."
+    )
+if not TEST_DB_NAME.endswith("_test") or TEST_DB_NAME == _DEV_DB_NAME:
+    raise RuntimeError(
+        f"Refusing to run tests: TEST_DB_NAME '{TEST_DB_NAME}' must end with '_test' "
+        "and differ from DB_NAME."
+    )
+os.environ["DB_NAME"] = TEST_DB_NAME
+# Optional dedicated test credentials (e.g. a user granted only on pms_test).
+for _name in ("DB_USER", "DB_PASSWORD"):
+    if os.getenv(f"TEST_{_name}"):
+        os.environ[_name] = os.environ[f"TEST_{_name}"]
+# Tests sign tokens with a throwaway key; the real AUTH_SECRET_KEY is unused.
+os.environ["AUTH_SECRET_KEY"] = secrets.token_urlsafe(48)
+os.environ["AUTH_COOKIE_SECURE"] = "false"  # TestClient talks plain HTTP
+
+# --- Imports below this line see the test configuration --------------------
+from collections.abc import Callable, Iterator  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+from datetime import date  # noqa: E402
+
+import pytest  # noqa: E402
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import select, text  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+
+from app.auth.passwords import hash_password  # noqa: E402
+from app.auth.tokens import create_access_token  # noqa: E402
+from app.db import engine  # noqa: E402
+from app.dependencies import get_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models import (  # noqa: E402
     Department,
     Designation,
     Employee,
     EmployeeAssignment,
     Plant,
     PlantDepartment,
+    Role,
+    User,
+    UserRole,
+    UserRoleScope,
 )
+from app.models.enums import ScopeType  # noqa: E402
+
+ALEMBIC_INI = ENV_FILE.parent / "alembic.ini"
+
+
+def assert_connected_to_test_database() -> None:
+    """Verify the LIVE connection, not just configuration, targets the test DB."""
+    with engine.connect() as conn:
+        current = conn.execute(text("SELECT DATABASE()")).scalar()
+    if current != TEST_DB_NAME:
+        raise RuntimeError(
+            f"Refusing to run tests: connected to '{current}', expected '{TEST_DB_NAME}'."
+        )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def test_database() -> str:
+    """Verify isolation, then bring the test schema to the latest migration."""
+    assert_connected_to_test_database()
+    config = Config(str(ALEMBIC_INI))
+    config.attributes["configure_logger"] = False  # keep pytest's logging intact
+    command.upgrade(config, "head")
+    return TEST_DB_NAME
 
 
 @pytest.fixture
@@ -40,14 +106,85 @@ def db() -> Iterator[Session]:
         connection.close()
 
 
+ScopeSpec = tuple[ScopeType, Plant | None, Department | None]
+RoleSpec = tuple[str, list[ScopeSpec]]
+
+
 @pytest.fixture
-def client(db: Session) -> Iterator[TestClient]:
+def make_user(db: Session) -> Callable[..., User]:
+    """Create a user with role grants, e.g.
+    make_user("tst.hr", roles=[("HR", [(ScopeType.PLANT, plant, None)])])."""
+
+    def _make(
+        username: str,
+        *,
+        roles: list[RoleSpec] = (),
+        employee: Employee | None = None,
+        password: str | None = None,
+        is_active: bool = True,
+    ) -> User:
+        user = User(
+            username=username,
+            employee_id=employee.id if employee else None,
+            password_hash=hash_password(password) if password else None,
+            is_active=is_active,
+        )
+        db.add(user)
+        db.flush()
+        for role_code, scopes in roles:
+            role = db.scalars(select(Role).where(Role.code == role_code)).one_or_none()
+            if role is None:
+                role = Role(code=role_code, name=f"Test {role_code}")
+                db.add(role)
+                db.flush()
+            grant = UserRole(user_id=user.id, role_id=role.id)
+            db.add(grant)
+            db.flush()
+            for scope_type, plant, department in scopes:
+                db.add(
+                    UserRoleScope(
+                        user_role_id=grant.id,
+                        scope_type=scope_type,
+                        plant_id=plant.id if plant else None,
+                        department_id=department.id if department else None,
+                    )
+                )
+        db.flush()
+        db.expire(user)  # reload relationships on next access
+        return user
+
+    return _make
+
+
+@pytest.fixture
+def client_for(db: Session) -> Iterator[Callable[[User | None], TestClient]]:
+    """TestClient factory: client_for(user) sends that user's bearer token;
+    client_for(None) is anonymous. All share the rolled-back `db` session."""
     app.dependency_overrides[get_db] = lambda: db
+
+    def _make(user: User | None) -> TestClient:
+        headers = {}
+        if user is not None:
+            token, _ = create_access_token(user.id)
+            headers["Authorization"] = f"Bearer {token}"
+        return TestClient(app, headers=headers)
+
     try:
-        with TestClient(app) as test_client:
-            yield test_client
+        yield _make
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def anon_client(client_for) -> TestClient:
+    return client_for(None)
+
+
+@pytest.fixture
+def client(client_for, make_user) -> TestClient:
+    """A signed-in GLOBAL admin: sees everything (pre-authorization behaviour)."""
+    admin = make_user("tst.admin", roles=[("ADMIN", [(ScopeType.GLOBAL, None, None)])])
+    return client_for(admin)
 
 
 @dataclass

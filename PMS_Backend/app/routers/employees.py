@@ -1,14 +1,17 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import CurrentPrincipal, OrgScope, get_current_user
 from app.dependencies import get_db
 from app.schemas.employee import EmployeeDetail, EmployeeListResponse
 from app.services import employees as svc
 
-router = APIRouter(prefix="/api/employees", tags=["employees"])
+router = APIRouter(
+    prefix="/api/employees", tags=["employees"], dependencies=[Depends(get_current_user)]
+)
 
 DbSession = Annotated[Session, Depends(get_db)]
 AsOf = Annotated[
@@ -20,6 +23,7 @@ AsOf = Annotated[
 @router.get("", response_model=EmployeeListResponse)
 def list_employees(
     db: DbSession,
+    scope: OrgScope,
     plant_id: Annotated[int | None, Query(description="Omit for all plants.")] = None,
     department_id: Annotated[
         int | None, Query(description="Omit for all departments.")
@@ -35,6 +39,7 @@ def list_employees(
 ):
     return svc.list_employees(
         db,
+        access=scope,
         as_of=as_of or date.today(),
         plant_id=plant_id,
         department_id=department_id,
@@ -46,6 +51,19 @@ def list_employees(
 
 
 @router.get("/{employee_id}", response_model=EmployeeDetail)
-def get_employee(db: DbSession, employee_id: int, as_of: AsOf = None):
-    """One employee with current assignments and full assignment history."""
-    return svc.get_employee(db, employee_id, as_of or date.today())
+def get_employee(
+    db: DbSession, principal: CurrentPrincipal, employee_id: int, as_of: AsOf = None
+):
+    """One employee: in-scope assignments, or the full record for oneself."""
+    if principal.org_scope.is_empty and not principal.can_read_self:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to employee records.",
+        )
+    return svc.get_employee(
+        db,
+        employee_id,
+        as_of or date.today(),
+        access=principal.org_scope,
+        self_employee_id=principal.employee_id if principal.can_read_self else None,
+    )

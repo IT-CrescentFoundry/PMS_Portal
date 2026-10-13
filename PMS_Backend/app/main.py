@@ -6,11 +6,15 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.config import get_auth_settings
 from app.db import engine
-from app.routers import employees, organization, reports
+from app.routers import auth, employees, organization, reports
 from app.services.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
+
+# Fail at startup, not on the first login, if auth configuration is missing.
+get_auth_settings()
 
 app = FastAPI(
     title="PMS Portal API",
@@ -30,6 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(organization.router)
 app.include_router(employees.router)
 app.include_router(reports.router)

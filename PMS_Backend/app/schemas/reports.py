@@ -10,6 +10,9 @@ class ReportScope(ORMModel):
     plant_id: int | None
     department_id: int | None
     label: str  # e.g. "Quality — Plant A", "Quality — All Plants"
+    # True when the caller's access covers only part of the requested scope;
+    # all figures then describe the accessible part only.
+    access_limited: bool
 
 
 class UnitHeadcount(ORMModel):

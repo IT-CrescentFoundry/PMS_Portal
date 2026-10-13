@@ -39,12 +39,24 @@ npm run dev
 python -m venv PMS_venv
 .\PMS_venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env        # then set DB_PASSWORD etc. (never commit .env)
+Copy-Item .env.example .env        # then set DB_PASSWORD, AUTH_SECRET_KEY, DEMO_USER_PASSWORD
+                                   # (never commit .env)
 
 alembic upgrade head               # create/upgrade the MySQL schema
-python -m app.seed                 # load synthetic demo data (safe to rerun)
-python -m pytest                   # run tests (rolled back; leaves no data)
-uvicorn app.main:app --reload      # API docs at http://127.0.0.1:8000/docs
+python -m app.seed                 # synthetic demo data + demo passwords (safe to rerun)
+python -m pytest                   # tests run against TEST_DB_NAME (pms_test), rolled back
+uvicorn app.main:app --reload      # API docs at http://localhost:8000/docs
 ```
 
-Schema design and approved business rules: [docs/database-design.md](docs/database-design.md).
+One-time MySQL setup for tests (as an administrator):
+
+```sql
+CREATE DATABASE pms_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+GRANT ALL PRIVILEGES ON pms_test.* TO 'pms_app'@'localhost';
+```
+
+The test suite refuses to run unless `TEST_DB_NAME` ends with `_test`, differs from
+`DB_NAME`, and the live connection confirms it. It migrates `pms_test` itself.
+
+- Authentication, authorization, endpoints and demo accounts: [docs/api.md](docs/api.md)
+- Schema design and approved business rules: [docs/database-design.md](docs/database-design.md)
