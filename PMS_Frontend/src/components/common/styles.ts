@@ -19,7 +19,10 @@ const SIZES: Record<ButtonSize, string> = {
         md: 'h-10 px-4 text-sm',
 }
 
-export function buttonClasses(variant: ButtonVariant = 'secondary', size: ButtonSize = 'md'): string {
+export function buttonClasses(
+        variant: ButtonVariant = 'secondary',
+        size: ButtonSize = 'md',
+): string {
         return `${BASE} ${VARIANTS[variant]} ${SIZES[size]}`
 }
 

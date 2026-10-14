@@ -23,8 +23,14 @@ interface AlertProps {
 export function Alert({ tone = 'info', title, children, action, assertive = false }: AlertProps) {
         const Icon = ICONS[tone]
         return (
-                <div role={assertive ? 'alert' : 'status'} className={`flex gap-3 rounded-lg border px-4 py-3 text-sm ${STYLES[tone].box}`}>
-                        <Icon aria-hidden="true" className={`mt-0.5 size-5 shrink-0 ${STYLES[tone].icon}`} />
+                <div
+                        role={assertive ? 'alert' : 'status'}
+                        className={`flex gap-3 rounded-lg border px-4 py-3 text-sm ${STYLES[tone].box}`}
+                >
+                        <Icon
+                                aria-hidden="true"
+                                className={`mt-0.5 size-5 shrink-0 ${STYLES[tone].icon}`}
+                        />
                         <div className="min-w-0 flex-1 space-y-1">
                                 {title && <p className="font-semibold">{title}</p>}
                                 {children && <div>{children}</div>}

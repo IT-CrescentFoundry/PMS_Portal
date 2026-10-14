@@ -26,15 +26,27 @@ export function OrgFilters({ units, plantId, departmentId, onChange, disabled }:
                                 value={plantId === undefined ? '' : String(plantId)}
                                 disabled={disabled}
                                 onChange={(event) => {
-                                        const nextPlant = event.target.value ? Number(event.target.value) : undefined
+                                        const nextPlant = event.target.value
+                                                ? Number(event.target.value)
+                                                : undefined
                                         const stillAvailable =
                                                 departmentId === undefined ||
-                                                departmentsOf(units, nextPlant).some((d) => d.id === departmentId)
-                                        onChange({ plantId: nextPlant, departmentId: stillAvailable ? departmentId : undefined })
+                                                departmentsOf(units, nextPlant).some(
+                                                        (d) => d.id === departmentId,
+                                                )
+                                        onChange({
+                                                plantId: nextPlant,
+                                                departmentId: stillAvailable
+                                                        ? departmentId
+                                                        : undefined,
+                                        })
                                 }}
                                 options={[
                                         { value: '', label: 'All accessible plants' },
-                                        ...plants.map((p) => ({ value: String(p.id), label: p.name })),
+                                        ...plants.map((p) => ({
+                                                value: String(p.id),
+                                                label: p.name,
+                                        })),
                                 ]}
                         />
                         <SelectField
@@ -44,12 +56,17 @@ export function OrgFilters({ units, plantId, departmentId, onChange, disabled }:
                                 onChange={(event) =>
                                         onChange({
                                                 plantId,
-                                                departmentId: event.target.value ? Number(event.target.value) : undefined,
+                                                departmentId: event.target.value
+                                                        ? Number(event.target.value)
+                                                        : undefined,
                                         })
                                 }
                                 options={[
                                         { value: '', label: 'All departments' },
-                                        ...departments.map((d) => ({ value: String(d.id), label: d.name })),
+                                        ...departments.map((d) => ({
+                                                value: String(d.id),
+                                                label: d.name,
+                                        })),
                                 ]}
                         />
                 </>

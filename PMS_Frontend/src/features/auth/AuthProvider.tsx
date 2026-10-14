@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ApiError, isAbortError, setUnauthorizedHandler } from '../../services/apiClient'
+import {
+        ApiError,
+        isAbortError,
+        setCsrfToken,
+        setUnauthorizedHandler,
+} from '../../services/apiClient'
 import * as authApi from '../../services/authApi'
+import type { CurrentUser } from '../../types/api'
 import { AuthContext, SessionNotPersistedError, type AuthState } from './AuthContext'
 
 function toUnavailable(error: unknown): AuthState {
@@ -11,9 +17,21 @@ function toUnavailable(error: unknown): AuthState {
         return { status: 'unavailable', error: apiError }
 }
 
+function signedIn(user: CurrentUser): AuthState {
+        // Writes must carry the CSRF token bound to this session (memory only).
+        setCsrfToken(user.csrf_token)
+        return { status: 'authenticated', user }
+}
+
+function signedOut(reason: 'initial' | 'signed-out' | 'expired'): AuthState {
+        setCsrfToken(null)
+        return { status: 'unauthenticated', reason }
+}
+
 /**
  * Owns the browser session. The session itself lives in the HttpOnly cookie;
- * this provider only keeps the signed-in user's profile in memory.
+ * this provider only keeps the signed-in user's profile (and the session's
+ * CSRF token) in memory.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
         const [state, setState] = useState<AuthState>({ status: 'checking' })
@@ -23,11 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         useEffect(() => {
                 const controller = new AbortController()
                 authApi.getCurrentUser(controller.signal).then(
-                        (user) => setState({ status: 'authenticated', user }),
+                        (user) => setState(signedIn(user)),
                         (error: unknown) => {
                                 if (controller.signal.aborted || isAbortError(error)) return
                                 if (error instanceof ApiError && error.status === 401) {
-                                        setState({ status: 'unauthenticated', reason: 'initial' })
+                                        setState(signedOut('initial'))
                                 } else {
                                         setState(toUnavailable(error))
                                 }
@@ -42,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         setUnauthorizedHandler(() =>
                                 setState((current) =>
                                         current.status === 'authenticated'
-                                                ? { status: 'unauthenticated', reason: 'expired' }
+                                                ? signedOut('expired')
                                                 : current,
                                 ),
                         ),
@@ -51,20 +69,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const login = useCallback(async (username: string, password: string) => {
                 await authApi.login(username, password)
-                // Confirm the browser actually stored and sends the session cookie.
+                // Confirm the browser actually stored and sends the session cookie, and
+                // obtain the CSRF token bound to it.
                 let user
                 try {
                         user = await authApi.getCurrentUser()
                 } catch (error) {
-                        if (error instanceof ApiError && error.status === 401) throw new SessionNotPersistedError()
+                        if (error instanceof ApiError && error.status === 401)
+                                throw new SessionNotPersistedError()
                         throw error
                 }
-                setState({ status: 'authenticated', user })
+                setState(signedIn(user))
         }, [])
 
         const logout = useCallback(async () => {
                 await authApi.logout() // throws on network failure: state is left untouched
-                setState({ status: 'unauthenticated', reason: 'signed-out' })
+                setState(signedOut('signed-out'))
         }, [])
 
         const retrySessionCheck = useCallback(() => {

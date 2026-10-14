@@ -19,20 +19,47 @@ export function describeError(error: unknown): ErrorDescription {
                 }
         }
         if (error.kind === 'network') {
-                return { title: 'Server unreachable', message: error.message, icon: WifiOff, retryable: true }
+                return {
+                        title: 'Server unreachable',
+                        message: error.message,
+                        icon: WifiOff,
+                        retryable: true,
+                }
         }
         if (error.kind === 'timeout') {
-                return { title: 'Request timed out', message: error.message, icon: WifiOff, retryable: true }
+                return {
+                        title: 'Request timed out',
+                        message: error.message,
+                        icon: WifiOff,
+                        retryable: true,
+                }
         }
         switch (error.status) {
                 case 401:
-                        return { title: 'Session expired', message: error.message, icon: LockKeyhole, retryable: false }
+                        return {
+                                title: 'Session expired',
+                                message: error.message,
+                                icon: LockKeyhole,
+                                retryable: false,
+                        }
                 case 403:
-                        return { title: 'Access denied', message: error.message, icon: LockKeyhole, retryable: false }
+                        return {
+                                title: 'Access denied',
+                                message: error.message,
+                                icon: LockKeyhole,
+                                retryable: false,
+                        }
                 case 404:
-                        return { title: 'Not available', message: error.message, icon: SearchX, retryable: false }
+                        return {
+                                title: 'Not available',
+                                message: error.message,
+                                icon: SearchX,
+                                retryable: false,
+                        }
                 case 422: {
-                        const details = error.fieldErrors.map((f) => (f.field ? `${f.field}: ${f.message}` : f.message))
+                        const details = error.fieldErrors.map((f) =>
+                                f.field ? `${f.field}: ${f.message}` : f.message,
+                        )
                         return {
                                 title: 'Invalid filter',
                                 message: [error.message, ...details].join(' '),

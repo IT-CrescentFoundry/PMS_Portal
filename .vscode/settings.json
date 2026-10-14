@@ -1,0 +1,33 @@
+{
+        "editor.detectIndentation": false,
+        "[typescript]": {
+                "editor.tabSize": 8,
+                "editor.insertSpaces": true,
+                "editor.defaultFormatter": "vscode.typescript-language-features"
+        },
+        "[typescriptreact]": {
+                "editor.tabSize": 8,
+                "editor.insertSpaces": true,
+                "editor.defaultFormatter": "vscode.typescript-language-features"
+        },
+        "[javascript]": {
+                "editor.tabSize": 8,
+                "editor.insertSpaces": true,
+                "editor.defaultFormatter": "vscode.typescript-language-features"
+        },
+        "[json]": {
+                "editor.tabSize": 8,
+                "editor.insertSpaces": true,
+                "editor.defaultFormatter": "vscode.json-language-features"
+        },
+        "[css]": {
+                "editor.tabSize": 8,
+                "editor.insertSpaces": true,
+                "editor.defaultFormatter": "vscode.css-language-features"
+        },
+        "[python]": {
+                "editor.tabSize": 8,
+                "editor.insertSpaces": true,
+                "editor.detectIndentation": true
+        }
+}

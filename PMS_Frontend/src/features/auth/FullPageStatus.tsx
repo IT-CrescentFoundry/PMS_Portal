@@ -7,7 +7,10 @@ import type { ApiError } from '../../services/apiClient'
 
 export function CheckingSession() {
         return (
-                <div role="status" className="flex min-h-screen items-center justify-center gap-3 text-slate-600">
+                <div
+                        role="status"
+                        className="flex min-h-screen items-center justify-center gap-3 text-slate-600"
+                >
                         <Spinner />
                         <span>Checking your session…</span>
                 </div>
@@ -23,11 +26,17 @@ export function ServiceUnavailable({ error, onRetry }: { error: ApiError; onRetr
                                 role="alert"
                                 className="w-full max-w-md space-y-3 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm"
                         >
-                                <WifiOff aria-hidden="true" className="mx-auto size-8 text-slate-500" />
-                                <h1 className="text-lg font-semibold text-slate-900">{APP_NAME} is unavailable</h1>
+                                <WifiOff
+                                        aria-hidden="true"
+                                        className="mx-auto size-8 text-slate-500"
+                                />
+                                <h1 className="text-lg font-semibold text-slate-900">
+                                        {APP_NAME} is unavailable
+                                </h1>
                                 <p className="text-sm text-slate-600">{message}</p>
                                 <p className="text-sm text-slate-600">
-                                        Your session was not checked, so you have not been signed out.
+                                        Your session was not checked, so you have not been signed
+                                        out.
                                 </p>
                                 <Button variant="primary" onClick={onRetry}>
                                         <RefreshCw aria-hidden="true" className="size-4" />

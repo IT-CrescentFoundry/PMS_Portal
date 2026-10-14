@@ -64,7 +64,14 @@ interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
         hint?: ReactNode
 }
 
-export function SelectField({ label, options, hint, id, className = '', ...rest }: SelectFieldProps) {
+export function SelectField({
+        label,
+        options,
+        hint,
+        id,
+        className = '',
+        ...rest
+}: SelectFieldProps) {
         const generatedId = useId()
         const fieldId = id ?? generatedId
         return (

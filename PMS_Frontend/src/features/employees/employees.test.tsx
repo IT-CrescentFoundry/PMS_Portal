@@ -27,7 +27,9 @@ const SUPPORTED = new Set([
         'offset',
 ])
 
-function setup(list = employeeList([crossPlantEmployee, primaryElsewhereEmployee, noPrimaryEmployee])) {
+function setup(
+        list = employeeList([crossPlantEmployee, primaryElsewhereEmployee, noPrimaryEmployee]),
+) {
         const api = installMockApi({
                 'GET /api/auth/me': reply(200, adminUser),
                 'GET /api/org-units': reply(200, units),
@@ -40,7 +42,9 @@ describe('employee directory', () => {
         it('shows each person once, with primary and supporting assignments', async () => {
                 setup()
                 renderApp('/employees')
-                const row = (await screen.findByRole('link', { name: 'Tess Person' })).closest('tr')!
+                const row = (await screen.findByRole('link', { name: 'Tess Person' })).closest(
+                        'tr',
+                )!
                 expect(screen.getAllByRole('link', { name: 'Tess Person' })).toHaveLength(1)
                 expect(within(row).getByText('Primary')).toBeInTheDocument()
                 expect(within(row).getByText('Supporting')).toBeInTheDocument()
@@ -51,8 +55,12 @@ describe('employee directory', () => {
         it('does not guess primary status: hidden primary and missing primary are labelled', async () => {
                 setup()
                 renderApp('/employees')
-                const elsewhere = (await screen.findByRole('link', { name: 'Remy Support' })).closest('tr')!
-                expect(within(elsewhere).getByText('Primary assignment is outside your access.')).toBeInTheDocument()
+                const elsewhere = (
+                        await screen.findByRole('link', { name: 'Remy Support' })
+                ).closest('tr')!
+                expect(
+                        within(elsewhere).getByText('Primary assignment is outside your access.'),
+                ).toBeInTheDocument()
                 const none = screen.getByRole('link', { name: 'Nadia Noprimary' }).closest('tr')!
                 expect(within(none).getByText('No primary assignment recorded')).toBeInTheDocument()
         })
@@ -65,10 +73,17 @@ describe('employee directory', () => {
                 await user.selectOptions(screen.getByLabelText('Plant'), String(plantB.id))
                 await waitFor(() => expect(lastQuery().get('plant_id')).toBe(String(plantB.id)))
                 await user.selectOptions(screen.getByLabelText('Department'), String(quality.id))
-                await waitFor(() => expect(lastQuery().get('department_id')).toBe(String(quality.id)))
-                await user.click(screen.getByLabelText('Only employees counted here (primary assignment)'))
+                await waitFor(() =>
+                        expect(lastQuery().get('department_id')).toBe(String(quality.id)),
+                )
+                await user.click(
+                        screen.getByLabelText('Only employees counted here (primary assignment)'),
+                )
                 await waitFor(() => expect(lastQuery().get('primary_only')).toBe('true'))
-                await user.type(screen.getByLabelText('Search by employee code or name'), 'Tess{Enter}')
+                await user.type(
+                        screen.getByLabelText('Search by employee code or name'),
+                        'Tess{Enter}',
+                )
                 await waitFor(() => expect(lastQuery().get('search')).toBe('Tess'))
 
                 for (const call of api.callsTo('GET', '/api/employees')) {
@@ -123,32 +138,65 @@ describe('employee detail', () => {
                                 is_active: true,
                                 as_of: '2026-08-01',
                                 has_primary_assignment: true,
-                                current_assignments: [assignment({ id: 3, plant: plantB, is_primary: false })],
+                                current_assignments: [
+                                        assignment({ id: 3, plant: plantB, is_primary: false }),
+                                ],
                                 assignment_history: [
-                                        assignment({ id: 9, is_primary: false, effective_from: '2024-01-01', effective_to: '2025-03-31', is_current: false }),
+                                        assignment({
+                                                id: 9,
+                                                is_primary: false,
+                                                effective_from: '2024-01-01',
+                                                effective_to: '2025-03-31',
+                                                is_current: false,
+                                        }),
                                         assignment({ id: 3, plant: plantB, is_primary: false }),
                                 ],
                         }),
                 })
                 renderApp('/employees/502')
-                expect(await screen.findByRole('heading', { level: 1, name: 'Remy Support' })).toBeInTheDocument()
-                expect(screen.getByText(/primary assignment is outside your access/)).toBeInTheDocument()
-                const history = screen.getByRole('table', { name: 'Assignment history, oldest first' })
+                expect(
+                        await screen.findByRole('heading', { level: 1, name: 'Remy Support' }),
+                ).toBeInTheDocument()
+                expect(
+                        screen.getByText(/primary assignment is outside your access/),
+                ).toBeInTheDocument()
+                const history = screen.getByRole('table', {
+                        name: 'Assignment history, oldest first',
+                })
                 expect(within(history).getByText('Ended')).toBeInTheDocument()
                 expect(within(history).getByText('Current')).toBeInTheDocument()
         })
 
         it('lets an employee open their own record', async () => {
                 installMockApi({
-                        'GET /api/auth/me': reply(200, { ...adminUser, permissions: ['self:read'], employee: { id: 501, employee_code: 'T0001', full_name: 'Tess Person' }, roles: [] }),
+                        'GET /api/auth/me': reply(200, {
+                                ...adminUser,
+                                permissions: ['self:read'],
+                                employee: {
+                                        id: 501,
+                                        employee_code: 'T0001',
+                                        full_name: 'Tess Person',
+                                },
+                                roles: [],
+                        }),
                         'GET /api/employees/501': reply(200, {
-                                id: 501, employee_code: 'T0001', full_name: 'Tess Person', email: null, date_of_joining: null,
-                                date_of_exit: null, is_active: true, as_of: '2026-08-01', has_primary_assignment: true,
-                                current_assignments: [assignment()], assignment_history: [assignment()],
+                                id: 501,
+                                employee_code: 'T0001',
+                                full_name: 'Tess Person',
+                                email: null,
+                                date_of_joining: null,
+                                date_of_exit: null,
+                                is_active: true,
+                                as_of: '2026-08-01',
+                                has_primary_assignment: true,
+                                current_assignments: [assignment()],
+                                assignment_history: [assignment()],
                         }),
                 })
                 renderApp('/employees/501')
-                expect(await screen.findByRole('heading', { level: 1, name: 'Tess Person' })).toBeInTheDocument()
+                expect(
+                        await screen.findByRole('heading', { level: 1, name: 'Tess Person' }),
+                ).toBeInTheDocument()
                 expect(screen.getByText('You')).toBeInTheDocument()
         })
 })

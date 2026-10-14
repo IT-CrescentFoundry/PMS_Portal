@@ -164,6 +164,41 @@ them as written.
 - Budget reconciliation must verify that each employee allocation is counted
   exactly once.
 
+## Audit trail (`audit_events`, migration `bb82b01eddb7`)
+
+This is the foundation for write-enabled modules (JD, KRA, scoring, budget,
+approvals). Each consequential action adds one append-only row.
+
+| Column | Meaning |
+|---|---|
+| `occurred_at`, `id` | When the action happened (server clock); `id` gives a strict order |
+| `actor_type`, `actor_user_id`, `actor_username` | Who acted. `USER` rows must reference a user (CHECK constraint); `SYSTEM` is for automated jobs. The username is a snapshot. |
+| `action` | Dotted code, e.g. `kra.update`, `jd.approve` |
+| `entity_type`, `entity_id` | What was affected (indexed together for record history) |
+| `plant_id`, `department_id` | Organizational context, so HR or Admin can later review events within their scope |
+| `summary` | Safe, human-readable description (≤ 500 characters) |
+| `reason` | Approved reason or justification, required when the action demands one |
+| `changes` | JSON `{field: {"from", "to"}}` for the fields that changed |
+| `request_id` | Optional correlation of several events from one request |
+
+Rules (`app/services/audit.py`):
+
+- **Same transaction.** `record_event()` adds the row to the caller's session
+  and flushes, but never commits. The endpoint commits once, so a business
+  change and its audit row are saved or rolled back together. Tests prove
+  both cases.
+- **Attribution.** The actor comes from the authenticated user
+  (`AuditActorDep`), never from request input.
+- **Safe content.** Values under keys that look like credentials or personal
+  identifiers (password, token, secret, hash, API key, OTP, Aadhaar, PAN,
+  bank account) are replaced with `[redacted]`. `changes` is limited to 16 KB,
+  and unsupported value types are refused. Callers should list only the
+  fields that matter.
+- **Append-only.** No update or delete code exists. The database itself
+  doesn't yet block UPDATE/DELETE on this table. For production, grant the
+  application account only `INSERT, SELECT` on `audit_events`, or add a
+  trigger, which needs additional MySQL privileges.
+
 ## Deferred, by design
 
 - **Normalization policy** (configurable 20–60–20 bands, eligible population,

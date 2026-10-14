@@ -11,8 +11,20 @@ describe('headcount report', () => {
                 const report = headcountReport({
                         headcount: 4,
                         by_unit: [
-                                { plant_department_id: 1001, plant: plantA, department: quality, headcount: 3, supporting: 0 },
-                                { plant_department_id: 1002, plant: plantB, department: quality, headcount: 2, supporting: 1 },
+                                {
+                                        plant_department_id: 1001,
+                                        plant: plantA,
+                                        department: quality,
+                                        headcount: 3,
+                                        supporting: 0,
+                                },
+                                {
+                                        plant_department_id: 1002,
+                                        plant: plantB,
+                                        department: quality,
+                                        headcount: 2,
+                                        supporting: 1,
+                                },
                         ],
                 })
                 installMockApi({
@@ -21,9 +33,13 @@ describe('headcount report', () => {
                         'GET /api/reports/headcount': reply(200, report),
                 })
                 renderApp(`/reports/headcount?department_id=${quality.id}`)
-                expect(await screen.findByRole('heading', { name: 'Test Quality — All Plants' })).toBeInTheDocument()
+                expect(
+                        await screen.findByRole('heading', { name: 'Test Quality — All Plants' }),
+                ).toBeInTheDocument()
                 const table = screen.getByRole('table')
-                const footer = within(table).getByText('Total headcount (each person counted once)').closest('tr')!
+                const footer = within(table)
+                        .getByText('Total headcount (each person counted once)')
+                        .closest('tr')!
                 expect(within(footer).getByText('4')).toBeInTheDocument()
         })
 
@@ -35,20 +51,46 @@ describe('headcount report', () => {
                                 200,
                                 headcountReport({
                                         employees_without_primary: 2,
-                                        scope: { plant_id: null, department_id: null, label: 'All Departments — All Plants', access_limited: true },
+                                        scope: {
+                                                plant_id: null,
+                                                department_id: null,
+                                                label: 'All Departments — All Plants',
+                                                access_limited: true,
+                                        },
                                 }),
                         ),
                 })
                 renderApp('/reports/headcount')
-                expect(await screen.findByText(/Your access covers only part of this selection/)).toBeInTheDocument()
-                expect(screen.getByText('Not counted; please review their records')).toBeInTheDocument()
+                expect(
+                        await screen.findByText(/Your access covers only part of this selection/),
+                ).toBeInTheDocument()
+                expect(
+                        screen.getByText('Not counted; please review their records'),
+                ).toBeInTheDocument()
         })
 
         it('never lets an older response replace the report for newer filters', async () => {
-                const slowOld = deferred(200, headcountReport({ scope: { plant_id: null, department_id: null, label: 'OLD — All Plants', access_limited: false } }))
+                const slowOld = deferred(
+                        200,
+                        headcountReport({
+                                scope: {
+                                        plant_id: null,
+                                        department_id: null,
+                                        label: 'OLD — All Plants',
+                                        access_limited: false,
+                                },
+                        }),
+                )
                 const fastNew = reply(
                         200,
-                        headcountReport({ scope: { plant_id: plantB.id, department_id: null, label: 'NEW — Test Plant B', access_limited: false } }),
+                        headcountReport({
+                                scope: {
+                                        plant_id: plantB.id,
+                                        department_id: null,
+                                        label: 'NEW — Test Plant B',
+                                        access_limited: false,
+                                },
+                        }),
                 )
                 const api = installMockApi({
                         'GET /api/auth/me': reply(200, adminUser),
@@ -59,11 +101,17 @@ describe('headcount report', () => {
                 await waitFor(() => expect(screen.getByLabelText('Plant')).toBeEnabled())
                 await user.selectOptions(screen.getByLabelText('Plant'), String(plantB.id))
 
-                expect(await screen.findByRole('heading', { name: 'NEW — Test Plant B' })).toBeInTheDocument()
+                expect(
+                        await screen.findByRole('heading', { name: 'NEW — Test Plant B' }),
+                ).toBeInTheDocument()
                 slowOld.release() // the stale request finishes late (it was also aborted)
                 await new Promise((r) => setTimeout(r, 20))
-                expect(screen.queryByRole('heading', { name: 'OLD — All Plants' })).not.toBeInTheDocument()
-                expect(api.callsTo('GET', '/api/reports/headcount').at(-1)!.query.get('plant_id')).toBe(String(plantB.id))
+                expect(
+                        screen.queryByRole('heading', { name: 'OLD — All Plants' }),
+                ).not.toBeInTheDocument()
+                expect(
+                        api.callsTo('GET', '/api/reports/headcount').at(-1)!.query.get('plant_id'),
+                ).toBe(String(plantB.id))
         })
 
         it('describes each view in plain words', () => {
@@ -81,25 +129,68 @@ describe('department views', () => {
                         'GET /api/reports/headcount': reply(
                                 200,
                                 headcountReport({
-                                        scope: { plant_id: plantB.id, department_id: quality.id, label: 'Test Quality — Test Plant B', access_limited: false },
+                                        scope: {
+                                                plant_id: plantB.id,
+                                                department_id: quality.id,
+                                                label: 'Test Quality — Test Plant B',
+                                                access_limited: false,
+                                        },
                                         headcount: 1,
                                         supporting_employees: 1,
-                                        by_unit: [{ plant_department_id: 1002, plant: plantB, department: quality, headcount: 1, supporting: 1 }],
+                                        by_unit: [
+                                                {
+                                                        plant_department_id: 1002,
+                                                        plant: plantB,
+                                                        department: quality,
+                                                        headcount: 1,
+                                                        supporting: 1,
+                                                },
+                                        ],
                                 }),
                         ),
                         'GET /api/employees': reply(200, {
                                 items: [
                                         {
-                                                id: 501, employee_code: 'T0001', full_name: 'Tess Person', email: null, is_active: true,
-                                                has_primary_assignment: true, primary_assignment: null,
-                                                matching_assignments: [{ id: 2, plant_department_id: 1002, plant: plantB, department: quality, designation: { id: 1, code: 'E', name: 'Engineer' }, reporting_manager: null, is_primary: false, effective_from: '2026-04-01', effective_to: null, is_current: true }],
+                                                id: 501,
+                                                employee_code: 'T0001',
+                                                full_name: 'Tess Person',
+                                                email: null,
+                                                is_active: true,
+                                                has_primary_assignment: true,
+                                                primary_assignment: null,
+                                                matching_assignments: [
+                                                        {
+                                                                id: 2,
+                                                                plant_department_id: 1002,
+                                                                plant: plantB,
+                                                                department: quality,
+                                                                designation: {
+                                                                        id: 1,
+                                                                        code: 'E',
+                                                                        name: 'Engineer',
+                                                                },
+                                                                reporting_manager: null,
+                                                                is_primary: false,
+                                                                effective_from: '2026-04-01',
+                                                                effective_to: null,
+                                                                is_current: true,
+                                                        },
+                                                ],
                                         },
                                 ],
-                                total: 1, limit: 50, offset: 0, as_of: '2026-08-01',
+                                total: 1,
+                                limit: 50,
+                                offset: 0,
+                                as_of: '2026-08-01',
                         }),
                 })
                 renderApp(`/departments/${quality.id}/plants/${plantB.id}`)
-                expect(await screen.findByRole('heading', { level: 1, name: 'Test Quality — Test Plant B' })).toBeInTheDocument()
+                expect(
+                        await screen.findByRole('heading', {
+                                level: 1,
+                                name: 'Test Quality — Test Plant B',
+                        }),
+                ).toBeInTheDocument()
                 const row = screen.getByRole('link', { name: 'Tess Person' }).closest('tr')!
                 expect(within(row).getByText('Supporting')).toBeInTheDocument()
         })
@@ -110,14 +201,27 @@ describe('department views', () => {
                         'GET /api/reports/headcount': reply(
                                 200,
                                 headcountReport({
-                                        scope: { plant_id: plantB.id, department_id: 11, label: 'Test Production — Test Plant B', access_limited: false },
+                                        scope: {
+                                                plant_id: plantB.id,
+                                                department_id: 11,
+                                                label: 'Test Production — Test Plant B',
+                                                access_limited: false,
+                                        },
                                         headcount: 0,
                                         by_unit: [],
                                 }),
                         ),
-                        'GET /api/employees': reply(200, { items: [], total: 0, limit: 50, offset: 0, as_of: '2026-08-01' }),
+                        'GET /api/employees': reply(200, {
+                                items: [],
+                                total: 0,
+                                limit: 50,
+                                offset: 0,
+                                as_of: '2026-08-01',
+                        }),
                 })
                 renderApp(`/departments/11/plants/${plantB.id}`)
-                expect(await screen.findByText('This department is not set up at this plant')).toBeInTheDocument()
+                expect(
+                        await screen.findByText('This department is not set up at this plant'),
+                ).toBeInTheDocument()
         })
 })

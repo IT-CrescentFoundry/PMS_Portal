@@ -27,6 +27,13 @@ class QuarterStatus(StrEnum):
     CLOSED = "CLOSED"
 
 
+class AuditActorType(StrEnum):
+    """Who performed an audited action."""
+
+    USER = "USER"      # an authenticated user (actor_user_id is required)
+    SYSTEM = "SYSTEM"  # an automated process, e.g. a scheduled job or data load
+
+
 class ScopeType(StrEnum):
     """Organizational reach of a role assignment.
 

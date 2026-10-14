@@ -195,7 +195,8 @@ def test_deactivation_takes_effect_on_the_next_request(client_for, admin, db):
 def test_logout_clears_the_session_cookie(anon_client, admin):
     login(anon_client)
     assert anon_client.get("/api/auth/me").status_code == 200
-    resp = anon_client.post("/api/auth/logout")
+    # Browsers always send Origin on POST; the frontend origin is trusted.
+    resp = anon_client.post("/api/auth/logout", headers={"Origin": "http://localhost:5173"})
     assert resp.status_code == 204
     assert ACCESS_TOKEN_COOKIE in resp.headers["set-cookie"]
     assert anon_client.get("/api/auth/me").status_code == 401

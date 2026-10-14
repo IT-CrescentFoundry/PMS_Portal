@@ -3,46 +3,41 @@
 /* PMS design tokens: one navy accent on light neutrals. Change the brand
    scale here to re-theme the whole application. */
 @theme {
-  --color-brand-50: #eff5fb;
-  --color-brand-100: #dbe7f5;
-  --color-brand-200: #b8cfea;
-  --color-brand-500: #2f6db5;
-  --color-brand-600: #255a99;
-  --color-brand-700: #1e4a80;
-  --color-brand-800: #1a3d68;
-  --color-brand-900: #152f50;
+        --color-brand-50: #eff5fb;
+        --color-brand-100: #dbe7f5;
+        --color-brand-200: #b8cfea;
+        --color-brand-500: #2f6db5;
+        --color-brand-600: #255a99;
+        --color-brand-700: #1e4a80;
+        --color-brand-800: #1a3d68;
+        --color-brand-900: #152f50;
 }
 
 @layer base {
-  html {
-    color-scheme: light;
-    -webkit-text-size-adjust: 100%;
-  }
+        html {
+                color-scheme: light;
+                -webkit-text-size-adjust: 100%;
+        }
 
-  body {
-    @apply bg-slate-50 text-slate-900 antialiased;
-    font-family:
-      system-ui,
-      'Segoe UI',
-      Roboto,
-      'Helvetica Neue',
-      Arial,
-      sans-serif;
-  }
+        body {
+                @apply bg-slate-50 text-slate-900 antialiased;
+                font-family: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
 
-  /* Visible keyboard focus everywhere; no outline for mouse clicks. */
-  :focus-visible {
-    @apply outline-2 outline-offset-2 outline-brand-500;
-  }
+        /* Visible keyboard focus everywhere; no outline for mouse clicks. */
+        :focus-visible {
+                @apply outline-2 outline-offset-2 outline-brand-500;
+        }
 
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
-    }
-  }
+        @media (prefers-reduced-motion: reduce) {
+
+                *,
+                *::before,
+                *::after {
+                        animation-duration: 0.01ms !important;
+                        animation-iteration-count: 1 !important;
+                        transition-duration: 0.01ms !important;
+                        scroll-behavior: auto !important;
+                }
+        }
 }

@@ -35,6 +35,9 @@ class CurrentUserRead(BaseModel):
     employee: EmployeeRef | None
     roles: list[RoleGrantRead]
     permissions: list[str]
+    # Send as X-CSRF-Token on state-changing requests made with the session
+    # cookie. Null when the request was not cookie-authenticated.
+    csrf_token: str | None = None
 
 
 class LoginResponse(BaseModel):

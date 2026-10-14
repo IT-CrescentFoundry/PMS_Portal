@@ -92,6 +92,14 @@ def test_database() -> str:
     return TEST_DB_NAME
 
 
+@pytest.fixture(autouse=True)
+def reset_login_limiter() -> Iterator[None]:
+    """The login limiter is process-wide; each test starts with a clean slate."""
+    app.state.login_limiter.reset()
+    yield
+    app.state.login_limiter.reset()
+
+
 @pytest.fixture
 def db() -> Iterator[Session]:
     connection = engine.connect()

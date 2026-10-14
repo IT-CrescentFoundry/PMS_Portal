@@ -74,3 +74,46 @@ def get_auth_settings() -> AuthSettings:
         # Must be true whenever the API is served over HTTPS.
         cookie_secure=env_bool("AUTH_COOKIE_SECURE", False),
     )
+
+
+DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+
+
+@dataclass(frozen=True)
+class SecuritySettings:
+    # Browser origins allowed to call the API with credentials. The same list
+    # is trusted by the CSRF Origin check.
+    cors_origins: tuple[str, ...]
+    login_rate_limit_enabled: bool
+    login_max_failures_per_ip: int
+    login_max_failures_per_account: int
+    login_rate_limit_window_seconds: int
+
+
+def _parse_origins(raw: str) -> tuple[str, ...]:
+    origins = tuple(o.strip().rstrip("/") for o in raw.split(",") if o.strip())
+    for origin in origins:
+        if origin == "*" or not origin.startswith(("http://", "https://")):
+            raise RuntimeError(
+                f"CORS_ORIGINS entries must be explicit http(s) origins (got '{origin}')."
+            )
+    return origins
+
+
+@cache
+def get_security_settings() -> SecuritySettings:
+    """CORS / CSRF origins and login rate limits, validated once and cached."""
+    settings = SecuritySettings(
+        cors_origins=_parse_origins(os.getenv("CORS_ORIGINS") or DEFAULT_CORS_ORIGINS),
+        login_rate_limit_enabled=env_bool("LOGIN_RATE_LIMIT_ENABLED", True),
+        login_max_failures_per_ip=env_int("LOGIN_MAX_FAILURES_PER_IP", 20),
+        login_max_failures_per_account=env_int("LOGIN_MAX_FAILURES_PER_ACCOUNT", 10),
+        login_rate_limit_window_seconds=env_int("LOGIN_RATE_LIMIT_WINDOW_SECONDS", 900),
+    )
+    if min(
+        settings.login_max_failures_per_ip,
+        settings.login_max_failures_per_account,
+        settings.login_rate_limit_window_seconds,
+    ) < 1:
+        raise RuntimeError("Login rate-limit settings must be positive integers.")
+    return settings

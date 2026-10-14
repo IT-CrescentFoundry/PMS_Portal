@@ -7,12 +7,19 @@ test('wrong password shows a form error and stays on the sign-in page', async ({
         await page.getByLabel('Username').fill('demo.admin')
         await page.getByLabel('Password', { exact: true }).fill('not-the-right-password')
         await page.getByRole('button', { name: 'Sign in' }).click()
-        await expect(page.getByText('The username or password is incorrect, or the account is inactive.')).toBeVisible()
+        await expect(
+                page.getByText(
+                        'The username or password is incorrect, or the account is inactive.',
+                ),
+        ).toBeVisible()
         await expect(page).toHaveURL(/\/login$/)
         expect(errors).toEqual([])
 })
 
-test('sign in, keep the session across reloads, sign out, then be locked out', async ({ page, context }) => {
+test('sign in, keep the session across reloads, sign out, then be locked out', async ({
+        page,
+        context,
+}) => {
         const errors = collectConsoleErrors(page)
         await page.goto('/plants') // protected: redirects to sign-in first
         await expect(page).toHaveURL(/\/login$/)

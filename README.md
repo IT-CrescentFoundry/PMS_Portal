@@ -51,15 +51,20 @@ python -m pytest                   # tests run against TEST_DB_NAME (pms_test), 
 uvicorn app.main:app --reload --host localhost --port 8000   # API docs at http://localhost:8000/docs
 ```
 
-One-time MySQL setup for tests (as an administrator):
+One-time MySQL setup for the two test databases (as an administrator):
 
 ```sql
-CREATE DATABASE pms_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE pms_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;      -- backend tests
 GRANT ALL PRIVILEGES ON pms_test.* TO 'pms_app'@'localhost';
+CREATE DATABASE pms_e2e_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;  -- browser tests
+GRANT ALL PRIVILEGES ON pms_e2e_test.* TO 'pms_app'@'localhost';
 ```
 
-The test suite refuses to run unless `TEST_DB_NAME` ends with `_test`, differs from
-`DB_NAME`, and the live connection confirms it. It migrates `pms_test` itself.
+Each suite uses only its own database. The backend tests use `TEST_DB_NAME`,
+which must end with `_test`. The browser tests use `E2E_DB_NAME`, which must
+end with `_e2e_test`. Both refuse to run unless the name differs from
+`DB_NAME` and the live connection confirms the database. Each suite migrates
+its own database; the development database `pms` is never used by tests.
 
 - Authentication, authorization, endpoints and demo accounts: [docs/api.md](docs/api.md)
 - Schema design and approved business rules: [docs/database-design.md](docs/database-design.md)

@@ -13,7 +13,8 @@ export function plantsOf(units: OrgUnit[]): PlantRef[] {
 export function departmentsOf(units: OrgUnit[], plantId?: number): DepartmentRef[] {
         const map = new Map<number, DepartmentRef>()
         for (const unit of units) {
-                if (plantId === undefined || unit.plant.id === plantId) map.set(unit.department.id, unit.department)
+                if (plantId === undefined || unit.plant.id === plantId)
+                        map.set(unit.department.id, unit.department)
         }
         return [...map.values()].sort(byName)
 }

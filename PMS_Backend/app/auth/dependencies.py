@@ -18,6 +18,7 @@ from app.auth.service import is_login_allowed
 from app.auth.tokens import ACCESS_TOKEN_COOKIE, InvalidTokenError, decode_access_token
 from app.dependencies import get_db
 from app.models import User, UserRole
+from app.services.audit import AuditActor
 from app.services.scope import AccessScope
 
 # Lets Swagger UI's "Authorize" button obtain a bearer token.
@@ -67,6 +68,14 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 def get_principal(user: CurrentUser) -> Principal:
     return build_principal(user)
+
+
+def get_audit_actor(user: CurrentUser) -> AuditActor:
+    """The authenticated user as the actor of audited write operations."""
+    return AuditActor.from_user(user)
+
+
+AuditActorDep = Annotated[AuditActor, Depends(get_audit_actor)]
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_principal)]

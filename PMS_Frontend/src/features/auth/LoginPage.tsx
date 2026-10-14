@@ -30,7 +30,8 @@ function loginErrorMessage(error: unknown): string {
         if (error instanceof ApiError && error.status === 401) {
                 return 'The username or password is incorrect, or the account is inactive.'
         }
-        if (error instanceof ApiError && error.status === 422) return 'Check your username and password.'
+        if (error instanceof ApiError && error.status === 422)
+                return 'Check your username and password.'
         return describeError(error).message
 }
 
@@ -86,9 +87,12 @@ export function LoginPage() {
                                         >
                                                 P
                                         </span>
-                                        <h1 className="text-2xl font-semibold text-slate-900">Sign in to {APP_NAME}</h1>
+                                        <h1 className="text-2xl font-semibold text-slate-900">
+                                                Sign in to {APP_NAME}
+                                        </h1>
                                         <p className="text-sm text-slate-600">
-                                                Performance Management System for HR, department heads and management.
+                                                Performance Management System for HR, department
+                                                heads and management.
                                         </p>
                                 </div>
 
@@ -118,7 +122,9 @@ export function LoginPage() {
                                                 autoCapitalize="none"
                                                 spellCheck={false}
                                                 value={username}
-                                                onChange={(event) => setUsername(event.target.value)}
+                                                onChange={(event) =>
+                                                        setUsername(event.target.value)
+                                                }
                                                 error={fieldErrors.username}
                                                 disabled={submitting}
                                                 required
@@ -128,10 +134,18 @@ export function LoginPage() {
                                                         <TextField
                                                                 label="Password"
                                                                 name="password"
-                                                                type={showPassword ? 'text' : 'password'}
+                                                                type={
+                                                                        showPassword
+                                                                                ? 'text'
+                                                                                : 'password'
+                                                                }
                                                                 autoComplete="current-password"
                                                                 value={password}
-                                                                onChange={(event) => setPassword(event.target.value)}
+                                                                onChange={(event) =>
+                                                                        setPassword(
+                                                                                event.target.value,
+                                                                        )
+                                                                }
                                                                 error={fieldErrors.password}
                                                                 disabled={submitting}
                                                                 className="pr-11"
@@ -139,26 +153,51 @@ export function LoginPage() {
                                                         />
                                                         <button
                                                                 type="button"
-                                                                onClick={() => setShowPassword((shown) => !shown)}
-                                                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                                                onClick={() =>
+                                                                        setShowPassword(
+                                                                                (shown) => !shown,
+                                                                        )
+                                                                }
+                                                                aria-label={
+                                                                        showPassword
+                                                                                ? 'Hide password'
+                                                                                : 'Show password'
+                                                                }
                                                                 aria-pressed={showPassword}
                                                                 className="absolute top-7 right-1 flex size-9 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
                                                         >
                                                                 {showPassword ? (
-                                                                        <EyeOff aria-hidden="true" className="size-4" />
+                                                                        <EyeOff
+                                                                                aria-hidden="true"
+                                                                                className="size-4"
+                                                                        />
                                                                 ) : (
-                                                                        <Eye aria-hidden="true" className="size-4" />
+                                                                        <Eye
+                                                                                aria-hidden="true"
+                                                                                className="size-4"
+                                                                        />
                                                                 )}
                                                         </button>
                                                 </div>
                                         </div>
-                                        <Button type="submit" variant="primary" className="w-full" isLoading={submitting}>
-                                                {!submitting && <LogIn aria-hidden="true" className="size-4" />}
+                                        <Button
+                                                type="submit"
+                                                variant="primary"
+                                                className="w-full"
+                                                isLoading={submitting}
+                                        >
+                                                {!submitting && (
+                                                        <LogIn
+                                                                aria-hidden="true"
+                                                                className="size-4"
+                                                        />
+                                                )}
                                                 {submitting ? 'Signing in…' : 'Sign in'}
                                         </Button>
                                 </form>
                                 <p className="text-center text-xs text-slate-500">
-                                        For security, sessions expire after a fixed time and you will be asked to sign in again.
+                                        For security, sessions expire after a fixed time and you
+                                        will be asked to sign in again.
                                 </p>
                         </div>
                 </main>

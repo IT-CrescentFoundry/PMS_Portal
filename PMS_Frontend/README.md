@@ -22,8 +22,8 @@ the shared demo password is `DEMO_USER_PASSWORD` in `PMS_Backend/.env`.
 
 ### Configuration
 
-| Variable | Default | Purpose |
-|---|---|---|
+| Variable            | Default                 | Purpose                                                            |
+| ------------------- | ----------------------- | ------------------------------------------------------------------ |
 | `VITE_API_BASE_URL` | `http://localhost:8000` | Backend origin. A trailing `/` or `/api` is removed automatically. |
 
 Override it in `.env.local` (git-ignored); see `.env.example`. Only `VITE_*`
@@ -31,20 +31,40 @@ values reach the browser bundle, so never put secrets in them.
 
 ## Scripts
 
-| Command | What it does |
-|---|---|
-| `npm run dev` | Dev server on `localhost:5173` (strict port) |
-| `npm run build` | Type-check (`tsc -b`) and production build to `dist/` |
-| `npm run lint` | ESLint |
-| `npm test` | Component and unit tests (Vitest + Testing Library, mocked API) |
-| `npm run test:e2e` | Browser tests (Playwright, installed Google Chrome) against the real backend |
+| Command                | What it does                                                    |
+| ---------------------- | --------------------------------------------------------------- |
+| `npm run dev`          | Dev server on `localhost:5173` (strict port)                    |
+| `npm run build`        | Type-check (`tsc -b`) and production build to `dist/`           |
+| `npm run lint`         | ESLint                                                          |
+| `npm run format`       | Format all frontend files with Prettier                         |
+| `npm run format:check` | Fail if any file is not Prettier-formatted                      |
+| `npm test`             | Component and unit tests (Vitest + Testing Library, mocked API) |
+| `npm run test:e2e`     | Browser tests (Playwright, installed Google Chrome), isolated   |
 
-`test:e2e` starts the backend and the dev server if they are not already
-running. It uses the **development database with the demo seed**
-(`python -m app.seed`), and it reads the demo password from
-`PMS_Backend/.env` or `E2E_DEMO_PASSWORD`. Signing in updates the demo
-accounts' `last_login_at`; no other data is written. Traces, videos and
-screenshots are disabled, so credentials are never written to disk.
+### Browser tests
+
+`npm run test:e2e` never touches the development stack or database. It starts
+its own two servers, and never reuses running ones:
+
+- **API on `localhost:8001`:** `python -m tests.e2e_server`. Before writing
+  anything, the launcher checks that `E2E_DB_NAME` (in `PMS_Backend/.env`)
+  ends with `_e2e_test` and differs from `DB_NAME` and `TEST_DB_NAME`, and
+  that the live connection is to that database. Only then does it migrate
+  the schema and seed synthetic data, which is safe to repeat.
+- **Frontend on `localhost:5174`:** pointed at that API.
+
+The synthetic accounts get a random password for each run, so the tests never
+use your demo password. Traces, videos and screenshots are disabled, so
+credentials never reach the disk.
+
+One-time setup (MySQL administrator):
+
+```sql
+CREATE DATABASE pms_e2e_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+GRANT ALL PRIVILEGES ON pms_e2e_test.* TO 'pms_app'@'localhost';
+```
+
+Ports 8001 and 5174 must be free when the tests start.
 
 ## How it works
 
@@ -68,9 +88,9 @@ e2e/              Playwright specs
   `Authorization` header.
 - Every request uses `credentials: "include"`. On start-up the app calls
   `GET /api/auth/me` to restore the session:
-  - 401 shows the sign-in page;
-  - an unreachable server shows "unavailable" with Retry, and the user is
-    **not** signed out.
+     - 401 shows the sign-in page;
+     - an unreachable server shows "unavailable" with Retry, and the user is
+       **not** signed out.
 - After login the app calls `/me` again, to confirm the browser kept the
   cookie. If it didn't, the user sees an explanation (most often caused by
   using `127.0.0.1`).
@@ -78,12 +98,17 @@ e2e/              Playwright specs
   a message, then returned to the page they were on.
 - Sign-out calls `POST /api/auth/logout`. If the server can't be reached, the
   UI says so and does not claim the user is signed out.
+- **CSRF.** `/me` also returns the session's `csrf_token`. The API client keeps
+  it in memory and sends it as `X-CSRF-Token` on every POST, PUT, PATCH and
+  DELETE. It is cleared on sign-out or expiry and replaced on each new
+  session. Future write features need nothing extra: use `apiRequest`.
 
 ### Authorization
 
 The backend is the only authority. The UI uses the `permissions` from
 `/me` (`org:read`, `self:read`) only to decide which navigation to show.
 Every request is still filtered and enforced by the API:
+
 - 403 is shown as "Access denied";
 - 404 is shown as "not found, or you do not have access" (the two are never
   told apart).

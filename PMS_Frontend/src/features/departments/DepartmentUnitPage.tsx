@@ -25,7 +25,10 @@ export function DepartmentUnitPage() {
         const query = useApiQuery(valid ? `unit|${departmentId}|${plantId}` : null, (signal) =>
                 Promise.all([
                         getHeadcount({ departmentId, plantId }, signal),
-                        listEmployees({ departmentId, plantId, limit: PREVIEW_LIMIT, offset: 0 }, signal),
+                        listEmployees(
+                                { departmentId, plantId, limit: PREVIEW_LIMIT, offset: 0 },
+                                signal,
+                        ),
                 ]),
         )
 
@@ -36,13 +39,19 @@ export function DepartmentUnitPage() {
                         <>
                                 <PageHeader
                                         title="Department at plant"
-                                        breadcrumbs={[{ label: 'Departments', to: '/departments' }, { label: 'Department at plant' }]}
+                                        breadcrumbs={[
+                                                { label: 'Departments', to: '/departments' },
+                                                { label: 'Department at plant' },
+                                        ]}
                                 />
                                 <ErrorState
                                         error={query.error}
                                         onRetry={query.reload}
                                         action={
-                                                <Link to="/departments" className={buttonClasses('secondary')}>
+                                                <Link
+                                                        to="/departments"
+                                                        className={buttonClasses('secondary')}
+                                                >
                                                         Back to departments
                                                 </Link>
                                         }
@@ -61,17 +70,31 @@ export function DepartmentUnitPage() {
                                 title={report.scope.label}
                                 breadcrumbs={[
                                         { label: 'Departments', to: '/departments' },
-                                        { label: unit?.department.name ?? 'Department', to: `/departments/${departmentId}` },
+                                        {
+                                                label: unit?.department.name ?? 'Department',
+                                                to: `/departments/${departmentId}`,
+                                        },
                                         { label: unit?.plant.name ?? 'Plant' },
                                 ]}
                                 description="This department at this plant only."
                                 actions={
                                         unit && (
                                                 <>
-                                                        <Link to={`/departments/${departmentId}`} className={buttonClasses('secondary')}>
-                                                                {unit.department.name} across all plants
+                                                        <Link
+                                                                to={`/departments/${departmentId}`}
+                                                                className={buttonClasses(
+                                                                        'secondary',
+                                                                )}
+                                                        >
+                                                                {unit.department.name} across all
+                                                                plants
                                                         </Link>
-                                                        <Link to={`/plants/${plantId}`} className={buttonClasses('secondary')}>
+                                                        <Link
+                                                                to={`/plants/${plantId}`}
+                                                                className={buttonClasses(
+                                                                        'secondary',
+                                                                )}
+                                                        >
                                                                 {unit.plant.name}
                                                         </Link>
                                                 </>
@@ -92,22 +115,39 @@ export function DepartmentUnitPage() {
                                                 />
                                                 <StatCard
                                                         label="Supporting staff"
-                                                        value={formatNumber(report.supporting_employees)}
+                                                        value={formatNumber(
+                                                                report.supporting_employees,
+                                                        )}
                                                         hint="Also work here; primary assignment elsewhere"
                                                 />
                                                 <StatCard
                                                         label="Without a primary assignment"
-                                                        value={formatNumber(report.employees_without_primary)}
-                                                        tone={report.employees_without_primary > 0 ? 'warning' : 'default'}
+                                                        value={formatNumber(
+                                                                report.employees_without_primary,
+                                                        )}
+                                                        tone={
+                                                                report.employees_without_primary > 0
+                                                                        ? 'warning'
+                                                                        : 'default'
+                                                        }
                                                 />
                                         </dl>
 
-                                        <section aria-labelledby="unit-people" className="space-y-3">
+                                        <section
+                                                aria-labelledby="unit-people"
+                                                className="space-y-3"
+                                        >
                                                 <div className="flex flex-wrap items-end justify-between gap-2">
-                                                        <h2 id="unit-people" className="text-lg font-semibold text-slate-900">
+                                                        <h2
+                                                                id="unit-people"
+                                                                className="text-lg font-semibold text-slate-900"
+                                                        >
                                                                 People working here
                                                         </h2>
-                                                        <Link to={employeeListLink} className={`text-sm ${linkClasses}`}>
+                                                        <Link
+                                                                to={employeeListLink}
+                                                                className={`text-sm ${linkClasses}`}
+                                                        >
                                                                 Open in employee directory
                                                         </Link>
                                                 </div>
@@ -115,40 +155,108 @@ export function DepartmentUnitPage() {
                                                         <EmptyState title="No one currently works here" />
                                                 ) : (
                                                         <>
-                                                                {employees.total > employees.items.length && (
+                                                                {employees.total >
+                                                                        employees.items.length && (
                                                                         <Alert tone="info">
-                                                                                Showing {employees.items.length} of {formatNumber(employees.total)} people.{' '}
-                                                                                <Link to={employeeListLink} className={linkClasses}>
-                                                                                        View all in the employee directory
+                                                                                Showing{' '}
+                                                                                {
+                                                                                        employees
+                                                                                                .items
+                                                                                                .length
+                                                                                }{' '}
+                                                                                of{' '}
+                                                                                {formatNumber(
+                                                                                        employees.total,
+                                                                                )}{' '}
+                                                                                people.{' '}
+                                                                                <Link
+                                                                                        to={
+                                                                                                employeeListLink
+                                                                                        }
+                                                                                        className={
+                                                                                                linkClasses
+                                                                                        }
+                                                                                >
+                                                                                        View all in
+                                                                                        the employee
+                                                                                        directory
                                                                                 </Link>
                                                                         </Alert>
                                                                 )}
-                                                                <Table caption={`People working at ${report.scope.label}`}>
+                                                                <Table
+                                                                        caption={`People working at ${report.scope.label}`}
+                                                                >
                                                                         <thead>
                                                                                 <tr>
-                                                                                        <Th>Employee</Th>
-                                                                                        <Th>Designation</Th>
-                                                                                        <Th>Assignment</Th>
-                                                                                        <Th>Since</Th>
+                                                                                        <Th>
+                                                                                                Employee
+                                                                                        </Th>
+                                                                                        <Th>
+                                                                                                Designation
+                                                                                        </Th>
+                                                                                        <Th>
+                                                                                                Assignment
+                                                                                        </Th>
+                                                                                        <Th>
+                                                                                                Since
+                                                                                        </Th>
                                                                                 </tr>
                                                                         </thead>
                                                                         <TBody>
-                                                                                {employees.items.map((employee) => {
-                                                                                        const assignment = employee.matching_assignments[0]
-                                                                                        return (
-                                                                                                <tr key={employee.id}>
-                                                                                                        <Td>
-                                                                                                                <Link to={`/employees/${employee.id}`} className={linkClasses}>
-                                                                                                                        {employee.full_name}
-                                                                                                                </Link>
-                                                                                                                <p className="font-mono text-xs text-slate-600">{employee.employee_code}</p>
-                                                                                                        </Td>
-                                                                                                        <Td>{assignment?.designation.name ?? '—'}</Td>
-                                                                                                        <Td>{assignment && <AssignmentTypeBadge primary={assignment.is_primary} />}</Td>
-                                                                                                        <Td>{formatDate(assignment?.effective_from)}</Td>
-                                                                                                </tr>
-                                                                                        )
-                                                                                })}
+                                                                                {employees.items.map(
+                                                                                        (
+                                                                                                employee,
+                                                                                        ) => {
+                                                                                                const assignment =
+                                                                                                        employee
+                                                                                                                .matching_assignments[0]
+                                                                                                return (
+                                                                                                        <tr
+                                                                                                                key={
+                                                                                                                        employee.id
+                                                                                                                }
+                                                                                                        >
+                                                                                                                <Td>
+                                                                                                                        <Link
+                                                                                                                                to={`/employees/${employee.id}`}
+                                                                                                                                className={
+                                                                                                                                        linkClasses
+                                                                                                                                }
+                                                                                                                        >
+                                                                                                                                {
+                                                                                                                                        employee.full_name
+                                                                                                                                }
+                                                                                                                        </Link>
+                                                                                                                        <p className="font-mono text-xs text-slate-600">
+                                                                                                                                {
+                                                                                                                                        employee.employee_code
+                                                                                                                                }
+                                                                                                                        </p>
+                                                                                                                </Td>
+                                                                                                                <Td>
+                                                                                                                        {assignment
+                                                                                                                                ?.designation
+                                                                                                                                .name ??
+                                                                                                                                '—'}
+                                                                                                                </Td>
+                                                                                                                <Td>
+                                                                                                                        {assignment && (
+                                                                                                                                <AssignmentTypeBadge
+                                                                                                                                        primary={
+                                                                                                                                                assignment.is_primary
+                                                                                                                                        }
+                                                                                                                                />
+                                                                                                                        )}
+                                                                                                                </Td>
+                                                                                                                <Td>
+                                                                                                                        {formatDate(
+                                                                                                                                assignment?.effective_from,
+                                                                                                                        )}
+                                                                                                                </Td>
+                                                                                                        </tr>
+                                                                                                )
+                                                                                        },
+                                                                                )}
                                                                         </TBody>
                                                                 </Table>
                                                         </>

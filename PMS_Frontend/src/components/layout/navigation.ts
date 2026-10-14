@@ -26,7 +26,10 @@ export interface NavGroup {
 /** Navigation for this user. Visibility is a convenience; the API enforces access. */
 export function buildNavigation(user: CurrentUser): NavGroup[] {
         const groups: NavGroup[] = [
-                { label: 'Overview', items: [{ label: 'Dashboard', to: '/', icon: LayoutDashboard, end: true }] },
+                {
+                        label: 'Overview',
+                        items: [{ label: 'Dashboard', to: '/', icon: LayoutDashboard, end: true }],
+                },
         ]
         if (canReadOrganization(user)) {
                 groups.push(
@@ -34,19 +37,35 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                                 label: 'Organization',
                                 items: [
                                         { label: 'Plants', to: '/plants', icon: Factory },
-                                        { label: 'Departments', to: '/departments', icon: Building2 },
+                                        {
+                                                label: 'Departments',
+                                                to: '/departments',
+                                                icon: Building2,
+                                        },
                                         { label: 'Employees', to: '/employees', icon: Users },
                                 ],
                         },
                         {
                                 label: 'Reports',
-                                items: [{ label: 'Headcount', to: '/reports/headcount', icon: ChartColumn }],
+                                items: [
+                                        {
+                                                label: 'Headcount',
+                                                to: '/reports/headcount',
+                                                icon: ChartColumn,
+                                        },
+                                ],
                         },
                 )
         }
-        const account: NavItem[] = [{ label: 'My profile', to: '/profile', icon: UserRound, end: true }]
+        const account: NavItem[] = [
+                { label: 'My profile', to: '/profile', icon: UserRound, end: true },
+        ]
         if (user.employee && canReadOwnRecord(user) && !canReadOrganization(user)) {
-                account.push({ label: 'My employee record', to: `/employees/${user.employee.id}`, icon: Users })
+                account.push({
+                        label: 'My employee record',
+                        to: `/employees/${user.employee.id}`,
+                        icon: Users,
+                })
         }
         groups.push({ label: 'Account', items: account })
         return groups

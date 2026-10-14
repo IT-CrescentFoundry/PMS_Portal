@@ -18,30 +18,46 @@ test.afterEach(() => {
 })
 
 test('dashboard summarizes accessible data', async ({ page }) => {
-        await expect(page.getByRole('heading', { level: 1, name: 'Welcome, demo.admin' })).toBeVisible()
+        await expect(
+                page.getByRole('heading', { level: 1, name: 'Welcome, demo.admin' }),
+        ).toBeVisible()
         const summary = page.getByRole('region', { name: 'Summary' })
         await expect(summary.getByText('Plants', { exact: true })).toBeVisible()
-        await expect(page.getByRole('table', { name: 'Headcount by plant and department' })).toBeVisible()
+        await expect(
+                page.getByRole('table', { name: 'Headcount by plant and department' }),
+        ).toBeVisible()
 })
 
 test('plant to department-at-plant navigation', async ({ page }) => {
-        await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Plants' }).click()
+        await page
+                .getByRole('navigation', { name: 'Main' })
+                .getByRole('link', { name: 'Plants' })
+                .click()
         await expect(page.getByRole('table', { name: 'Plants' }).getByRole('row')).toHaveCount(4) // header + 3
         await page.getByRole('link', { name: 'Demo Plant A' }).click()
         await expect(page.getByRole('heading', { level: 1, name: 'Demo Plant A' })).toBeVisible()
-        await page.getByRole('table', { name: 'Departments at Demo Plant A' }).getByRole('link', { name: 'Quality' }).click()
-        await expect(page.getByRole('heading', { level: 1, name: 'Quality — Demo Plant A' })).toBeVisible()
+        await page
+                .getByRole('table', { name: 'Departments at Demo Plant A' })
+                .getByRole('link', { name: 'Quality' })
+                .click()
+        await expect(
+                page.getByRole('heading', { level: 1, name: 'Quality — Demo Plant A' }),
+        ).toBeVisible()
 })
 
 test('consolidated department counts a cross-plant employee once', async ({ page }) => {
         await page.goto('/departments')
         await page.getByRole('link', { name: 'Quality', exact: true }).click()
-        await expect(page.getByRole('heading', { level: 1, name: 'Quality: all accessible plants' })).toBeVisible()
+        await expect(
+                page.getByRole('heading', { level: 1, name: 'Quality: all accessible plants' }),
+        ).toBeVisible()
         const footer = page.getByRole('row', { name: /Total employees \(each counted once\)/ })
         await expect(footer).toContainText('4') // DEMO0001 counted once, not twice
 })
 
-test('employee directory shows one identity with primary and supporting assignments', async ({ page }) => {
+test('employee directory shows one identity with primary and supporting assignments', async ({
+        page,
+}) => {
         await page.goto('/employees')
         await page.getByLabel('Search by employee code or name').fill('DEMO0001')
         await page.getByRole('button', { name: 'Search', exact: true }).click()
@@ -72,5 +88,7 @@ test('headcount for one department at one plant', async ({ page }) => {
         await expect(page.getByRole('heading', { name: 'Quality — Demo Plant B' })).toBeVisible()
         const stats = page.locator('dl')
         await expect(stats.getByText('Headcount', { exact: true }).locator('..')).toContainText('1')
-        await expect(stats.getByText('Supporting staff', { exact: true }).locator('..')).toContainText('1')
+        await expect(
+                stats.getByText('Supporting staff', { exact: true }).locator('..'),
+        ).toContainText('1')
 })

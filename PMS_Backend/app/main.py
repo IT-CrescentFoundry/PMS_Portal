@@ -6,15 +6,18 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.config import get_auth_settings
+from app.auth.csrf import CSRF_HEADER, CSRFMiddleware
+from app.auth.rate_limit import LoginRateLimiter
+from app.config import get_auth_settings, get_security_settings
 from app.db import engine
 from app.routers import auth, employees, organization, reports
 from app.services.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
 
-# Fail at startup, not on the first login, if auth configuration is missing.
+# Fail at startup, not on the first request, if configuration is invalid.
 get_auth_settings()
+security = get_security_settings()
 
 app = FastAPI(
     title="PMS Portal API",
@@ -22,16 +25,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Allow our local React frontend to communicate with the API.
+# One limiter per process (see app/auth/rate_limit.py for its limitations).
+app.state.login_limiter = LoginRateLimiter.from_settings(security)
+
+# Middleware order: the LAST added runs FIRST. CORS is outermost so that
+# CSRF rejections still carry CORS headers for trusted frontend origins.
+app.add_middleware(CSRFMiddleware, trusted_origins=security.cors_origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=list(security.cors_origins),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Accept", "Authorization", "Content-Type", CSRF_HEADER],
 )
 
 app.include_router(auth.router)

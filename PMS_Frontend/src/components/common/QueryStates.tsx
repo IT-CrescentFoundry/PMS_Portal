@@ -27,10 +27,14 @@ export function EmptyState({
         action?: ReactNode
 }) {
         return (
-                <div className={`${cardClasses} flex flex-col items-center gap-2 px-6 py-12 text-center`}>
+                <div
+                        className={`${cardClasses} flex flex-col items-center gap-2 px-6 py-12 text-center`}
+                >
                         <Inbox aria-hidden="true" className="size-8 text-slate-400" />
                         <p className="font-semibold text-slate-800">{title}</p>
-                        {children && <div className="max-w-prose text-sm text-slate-600">{children}</div>}
+                        {children && (
+                                <div className="max-w-prose text-sm text-slate-600">{children}</div>
+                        )}
                         {action && <div className="pt-2">{action}</div>}
                 </div>
         )
@@ -60,7 +64,10 @@ export function ErrorState({
                                 <div className="flex flex-wrap justify-center gap-2 pt-2">
                                         {showRetry && (
                                                 <Button onClick={onRetry} variant="secondary">
-                                                        <RefreshCw aria-hidden="true" className="size-4" />
+                                                        <RefreshCw
+                                                                aria-hidden="true"
+                                                                className="size-4"
+                                                        />
                                                         Retry
                                                 </Button>
                                         )}

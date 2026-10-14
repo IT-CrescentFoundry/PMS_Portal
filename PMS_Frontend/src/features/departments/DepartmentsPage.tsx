@@ -42,18 +42,31 @@ export function DepartmentsPage() {
                         />
                         <div className="mb-4 flex flex-wrap items-end gap-4">
                                 <div className="w-full max-w-xs space-y-1">
-                                        <label htmlFor="department-search" className="block text-sm font-medium text-slate-800">
+                                        <label
+                                                htmlFor="department-search"
+                                                className="block text-sm font-medium text-slate-800"
+                                        >
                                                 Search departments
                                         </label>
                                         <div className="relative">
-                                                <Search aria-hidden="true" className="pointer-events-none absolute top-3 left-3 size-4 text-slate-400" />
+                                                <Search
+                                                        aria-hidden="true"
+                                                        className="pointer-events-none absolute top-3 left-3 size-4 text-slate-400"
+                                                />
                                                 <input
                                                         id="department-search"
                                                         type="search"
                                                         className={`${inputClasses} pl-9`}
                                                         placeholder="Code, name or description"
                                                         value={search}
-                                                        onChange={(e) => setParams(withParams(params, { q: e.target.value }), { replace: true })}
+                                                        onChange={(e) =>
+                                                                setParams(
+                                                                        withParams(params, {
+                                                                                q: e.target.value,
+                                                                        }),
+                                                                        { replace: true },
+                                                                )
+                                                        }
                                                 />
                                         </div>
                                 </div>
@@ -61,7 +74,15 @@ export function DepartmentsPage() {
                                         <CheckboxField
                                                 label="Show inactive departments"
                                                 checked={includeInactive}
-                                                onChange={(e) => setParams(withParams(params, { inactive: e.target.checked ? '1' : '' }))}
+                                                onChange={(e) =>
+                                                        setParams(
+                                                                withParams(params, {
+                                                                        inactive: e.target.checked
+                                                                                ? '1'
+                                                                                : '',
+                                                                }),
+                                                        )
+                                                }
                                         />
                                 </div>
                         </div>
@@ -76,8 +97,13 @@ export function DepartmentsPage() {
                                 <EmptyState title="No departments match your search" />
                         ) : (
                                 <>
-                                        <p className="mb-2 text-sm text-slate-600" aria-live="polite">
-                                                {query.isStale ? 'Updating…' : plural(visible.length, 'department')}
+                                        <p
+                                                className="mb-2 text-sm text-slate-600"
+                                                aria-live="polite"
+                                        >
+                                                {query.isStale
+                                                        ? 'Updating…'
+                                                        : plural(visible.length, 'department')}
                                         </p>
                                         <Table caption="Departments" busy={query.isStale}>
                                                 <thead>
@@ -90,39 +116,84 @@ export function DepartmentsPage() {
                                                 </thead>
                                                 <TBody>
                                                         {visible.map((department) => {
-                                                                const deptUnits = unitsByDepartment.get(department.id) ?? []
+                                                                const deptUnits =
+                                                                        unitsByDepartment.get(
+                                                                                department.id,
+                                                                        ) ?? []
                                                                 return (
                                                                         <tr key={department.id}>
-                                                                                <Td className="font-mono text-xs text-slate-700">{department.code}</Td>
+                                                                                <Td className="font-mono text-xs text-slate-700">
+                                                                                        {
+                                                                                                department.code
+                                                                                        }
+                                                                                </Td>
                                                                                 <Td>
-                                                                                        <Link to={`/departments/${department.id}`} className={linkClasses}>
-                                                                                                {department.name}
+                                                                                        <Link
+                                                                                                to={`/departments/${department.id}`}
+                                                                                                className={
+                                                                                                        linkClasses
+                                                                                                }
+                                                                                        >
+                                                                                                {
+                                                                                                        department.name
+                                                                                                }
                                                                                         </Link>
                                                                                         {department.description && (
-                                                                                                <p className="mt-0.5 text-xs text-slate-600">{department.description}</p>
+                                                                                                <p className="mt-0.5 text-xs text-slate-600">
+                                                                                                        {
+                                                                                                                department.description
+                                                                                                        }
+                                                                                                </p>
                                                                                         )}
                                                                                 </Td>
                                                                                 <Td>
-                                                                                        {deptUnits.length === 0 ? (
-                                                                                                <span className="text-slate-500">Not set up at any plant in your access</span>
+                                                                                        {deptUnits.length ===
+                                                                                        0 ? (
+                                                                                                <span className="text-slate-500">
+                                                                                                        Not
+                                                                                                        set
+                                                                                                        up
+                                                                                                        at
+                                                                                                        any
+                                                                                                        plant
+                                                                                                        in
+                                                                                                        your
+                                                                                                        access
+                                                                                                </span>
                                                                                         ) : (
                                                                                                 <ul className="flex flex-wrap gap-x-3 gap-y-1">
-                                                                                                        {deptUnits.map((u) => (
-                                                                                                                <li key={u.plant_department_id}>
-                                                                                                                        <Link
-                                                                                                                                to={`/departments/${department.id}/plants/${u.plant.id}`}
-                                                                                                                                className={`text-sm ${linkClasses}`}
-                                                                                                                                aria-label={`${department.name} at ${u.plant.name}`}
+                                                                                                        {deptUnits.map(
+                                                                                                                (
+                                                                                                                        u,
+                                                                                                                ) => (
+                                                                                                                        <li
+                                                                                                                                key={
+                                                                                                                                        u.plant_department_id
+                                                                                                                                }
                                                                                                                         >
-                                                                                                                                {u.plant.name}
-                                                                                                                        </Link>
-                                                                                                                </li>
-                                                                                                        ))}
+                                                                                                                                <Link
+                                                                                                                                        to={`/departments/${department.id}/plants/${u.plant.id}`}
+                                                                                                                                        className={`text-sm ${linkClasses}`}
+                                                                                                                                        aria-label={`${department.name} at ${u.plant.name}`}
+                                                                                                                                >
+                                                                                                                                        {
+                                                                                                                                                u
+                                                                                                                                                        .plant
+                                                                                                                                                        .name
+                                                                                                                                        }
+                                                                                                                                </Link>
+                                                                                                                        </li>
+                                                                                                                ),
+                                                                                                        )}
                                                                                                 </ul>
                                                                                         )}
                                                                                 </Td>
                                                                                 <Td>
-                                                                                        <ActiveBadge active={department.is_active} />
+                                                                                        <ActiveBadge
+                                                                                                active={
+                                                                                                        department.is_active
+                                                                                                }
+                                                                                        />
                                                                                 </Td>
                                                                         </tr>
                                                                 )

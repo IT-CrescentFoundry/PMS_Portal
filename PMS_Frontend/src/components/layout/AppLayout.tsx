@@ -59,7 +59,8 @@ export function AppLayout() {
                                                 id="mobile-navigation"
                                                 className="absolute inset-y-0 left-0 w-64 max-w-[85%] bg-white shadow-xl"
                                                 onKeyDown={(event) => {
-                                                        if (event.key === 'Escape') setNavOpen(false)
+                                                        if (event.key === 'Escape')
+                                                                setNavOpen(false)
                                                 }}
                                         >
                                                 <button
@@ -71,7 +72,10 @@ export function AppLayout() {
                                                 >
                                                         <X aria-hidden="true" className="size-5" />
                                                 </button>
-                                                <Sidebar groups={groups} onNavigate={() => setNavOpen(false)} />
+                                                <Sidebar
+                                                        groups={groups}
+                                                        onNavigate={() => setNavOpen(false)}
+                                                />
                                         </aside>
                                 </div>
                         )}
@@ -92,16 +96,34 @@ export function AppLayout() {
                                                 {sectionTitle(pathname)}
                                         </p>
                                         <div className="hidden min-w-0 text-right sm:block">
-                                                <p className="truncate text-sm font-medium text-slate-900">{displayName(user)}</p>
-                                                <p className="truncate text-xs text-slate-600">{roleSummary(user)}</p>
+                                                <p className="truncate text-sm font-medium text-slate-900">
+                                                        {displayName(user)}
+                                                </p>
+                                                <p className="truncate text-xs text-slate-600">
+                                                        {roleSummary(user)}
+                                                </p>
                                         </div>
-                                        <Button variant="ghost" size="sm" onClick={handleSignOut} isLoading={signingOut}>
-                                                {!signingOut && <LogOut aria-hidden="true" className="size-4" />}
+                                        <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={handleSignOut}
+                                                isLoading={signingOut}
+                                        >
+                                                {!signingOut && (
+                                                        <LogOut
+                                                                aria-hidden="true"
+                                                                className="size-4"
+                                                        />
+                                                )}
                                                 Sign out
                                         </Button>
                                 </header>
 
-                                <main id="main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+                                <main
+                                        id="main-content"
+                                        tabIndex={-1}
+                                        className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+                                >
                                         {signOutError && (
                                                 <div className="mb-4">
                                                         <Alert
@@ -109,12 +131,21 @@ export function AppLayout() {
                                                                 title="Sign-out could not be confirmed"
                                                                 assertive
                                                                 action={
-                                                                        <Button size="sm" onClick={handleSignOut} isLoading={signingOut}>
+                                                                        <Button
+                                                                                size="sm"
+                                                                                onClick={
+                                                                                        handleSignOut
+                                                                                }
+                                                                                isLoading={
+                                                                                        signingOut
+                                                                                }
+                                                                        >
                                                                                 Try again
                                                                         </Button>
                                                                 }
                                                         >
-                                                                {signOutError} You may still be signed in on this device.
+                                                                {signOutError} You may still be
+                                                                signed in on this device.
                                                         </Alert>
                                                 </div>
                                         )}

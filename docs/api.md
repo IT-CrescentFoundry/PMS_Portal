@@ -40,8 +40,10 @@ const me = await fetch("http://localhost:8000/api/auth/me", { credentials: "incl
 Local development: open the frontend at `http://localhost:5173` and call the
 API at `http://localhost:8000`. Use the same host name (`localhost`) for
 both: `127.0.0.1` vs `localhost` counts as cross-site, and the `Strict`
-cookie would not be sent. CORS allows credentials only from
-`http://localhost:5173` and `http://127.0.0.1:5173`.
+cookie would not be sent. CORS allows credentials only from the origins in
+`CORS_ORIGINS` (default `http://localhost:5173` and `http://127.0.0.1:5173`).
+For writes, also send the `csrf_token` from `/api/auth/me` as `X-CSRF-Token`
+(see "CSRF protection" below).
 
 ### API clients and Swagger UI
 
@@ -61,6 +63,66 @@ If both a header and a cookie are present, the header wins.
   changing its access takes effect immediately.
 - Passwords are stored only as Argon2id hashes. They are upgraded
   automatically on login if the hashing parameters change.
+
+### Sign-in rate limiting
+
+`POST /api/auth/login` and `/api/auth/token` count **failed** attempts in a
+sliding window (default 15 minutes):
+
+- **Per client IP** (default 20). This slows guessing across many accounts.
+- **Per submitted username** (default 10). This slows guessing against one
+  account. A successful sign-in clears that username's count.
+
+Beyond either limit the API answers **429** with
+`{"detail": "Too many sign-in attempts. Please wait and try again."}` and a
+`Retry-After` header. It does so before checking the password, even a
+correct one. The per-username count applies to any submitted text, so
+throttling behaves identically for real and unknown usernames, and a 429
+never reveals whether an account exists. Below the limit, failures still
+return the single generic 401. Configure with the `LOGIN_*` settings in
+`.env`.
+
+Limitations, which must be addressed before production:
+
+- The counts are **in memory, per API process**. They reset on restart and
+  are not shared between several processes or servers. A multi-instance
+  deployment needs a shared store (e.g. Redis) or rate limiting at the
+  gateway or WAF.
+- The client IP is the direct peer address. Behind a reverse proxy every user
+  would share the proxy's IP, so trusted forwarding (`X-Forwarded-For` from
+  known proxies only) must be configured.
+- An attacker who knows a username can delay that user's sign-in for up to
+  one window by failing on purpose. No account is ever locked permanently.
+
+### CSRF protection
+
+Every state-changing request (POST, PUT, PATCH, DELETE) is checked by the
+`CSRFMiddleware`, which runs before routing and so covers future endpoints
+automatically. There are two layers.
+
+1. **Origin check.** The `Origin` header (or the origin of `Referer`) must be
+   one of `CORS_ORIGINS` or the API's own origin (for example Swagger UI).
+   Requests that carry the session cookie but neither header are refused,
+   because browsers always send `Origin` on such requests.
+2. **Session-bound token.** A write sent with the session cookie must include
+   `X-CSRF-Token`. The token is an HMAC of the session cookie under the
+   server secret, returned as `csrf_token` by `GET /api/auth/me` (and by
+   login). Other origins can't read that response, because of CORS. The
+   frontend keeps the token in memory only; each new session has a new
+   token, and the token is useless without the cookie.
+
+Exemptions:
+
+- Requests authenticated with `Authorization: Bearer` (API clients and
+  Swagger) need no token. Browsers never attach that header on their own,
+  so such requests can't be forged cross-site.
+- `login`, `token` and `logout` need no token (there is no session yet, or it
+  is ending), but the Origin check still applies. That blocks login CSRF and
+  forced logout from other sites.
+
+A refused request gets **403** with `{"detail": "Cross-site request blocked."}`
+or `{"detail": "CSRF token missing or invalid."}`. Responses to trusted
+origins keep their CORS headers, so the frontend can read the error.
 
 ## Authorization model
 
@@ -112,6 +174,8 @@ Rules:
 | 401 | No credentials, invalid/expired token, or inactive account (`WWW-Authenticate: Bearer`) | `{"detail": "Not authenticated"}` or `{"detail": "Invalid or expired token"}` |
 | 401 | Login failed: unknown user, wrong password, no password set, or inactive | `{"detail": "Invalid username or password."}` (deliberately identical) |
 | 403 | Signed in, but no role grants the capability | `{"detail": "You do not have access to organizational data."}` |
+| 403 | Write refused by CSRF protection | `{"detail": "Cross-site request blocked."}` or `{"detail": "CSRF token missing or invalid."}` |
+| 429 | Too many failed sign-ins (`Retry-After` header) | `{"detail": "Too many sign-in attempts. Please wait and try again."}` |
 | 404 | Record does not exist **or** is outside your access (indistinguishable by design) | `{"detail": "Plant 7 not found"}` |
 | 422 | Invalid request body or query parameter | FastAPI validation detail |
 

@@ -67,7 +67,9 @@ export function EmployeesPage() {
 
         const unitList = units.data ?? []
         const plantName = plantsOf(unitList).find((p) => p.id === filters.plantId)?.name
-        const departmentName = departmentsOf(unitList).find((d) => d.id === filters.departmentId)?.name
+        const departmentName = departmentsOf(unitList).find(
+                (d) => d.id === filters.departmentId,
+        )?.name
         const comboMissing =
                 units.data !== undefined &&
                 filters.plantId !== undefined &&
@@ -92,14 +94,27 @@ export function EmployeesPage() {
                                 description="Each person appears once. Employees who work in several places show each assignment, marked Primary (where they are counted) or Supporting."
                         />
 
-                        <section aria-label="Filters" className={`${cardClasses} mb-4 space-y-4 p-4`}>
-                                <form role="search" onSubmit={handleSearch} className="flex flex-wrap items-end gap-2">
+                        <section
+                                aria-label="Filters"
+                                className={`${cardClasses} mb-4 space-y-4 p-4`}
+                        >
+                                <form
+                                        role="search"
+                                        onSubmit={handleSearch}
+                                        className="flex flex-wrap items-end gap-2"
+                                >
                                         <div className="w-full max-w-md space-y-1">
-                                                <label htmlFor="employee-search" className="block text-sm font-medium text-slate-800">
+                                                <label
+                                                        htmlFor="employee-search"
+                                                        className="block text-sm font-medium text-slate-800"
+                                                >
                                                         Search by employee code or name
                                                 </label>
                                                 <div className="relative">
-                                                        <Search aria-hidden="true" className="pointer-events-none absolute top-3 left-3 size-4 text-slate-400" />
+                                                        <Search
+                                                                aria-hidden="true"
+                                                                className="pointer-events-none absolute top-3 left-3 size-4 text-slate-400"
+                                                        />
                                                         <input
                                                                 key={filters.search}
                                                                 id="employee-search"
@@ -116,7 +131,12 @@ export function EmployeesPage() {
                                                 Search
                                         </Button>
                                         {hasActiveFilters && (
-                                                <Button variant="ghost" onClick={() => setParams(new URLSearchParams())}>
+                                                <Button
+                                                        variant="ghost"
+                                                        onClick={() =>
+                                                                setParams(new URLSearchParams())
+                                                        }
+                                                >
                                                         <X aria-hidden="true" className="size-4" />
                                                         Clear all filters
                                                 </Button>
@@ -130,7 +150,10 @@ export function EmployeesPage() {
                                                 departmentId={filters.departmentId}
                                                 disabled={units.data === undefined}
                                                 onChange={({ plantId, departmentId }) =>
-                                                        update({ plant_id: plantId, department_id: departmentId })
+                                                        update({
+                                                                plant_id: plantId,
+                                                                department_id: departmentId,
+                                                        })
                                                 }
                                         />
                                         <TextField
@@ -145,12 +168,24 @@ export function EmployeesPage() {
                                         <CheckboxField
                                                 label="Only employees counted here (primary assignment)"
                                                 checked={filters.primaryOnly}
-                                                onChange={(e) => update({ primary: e.target.checked ? '1' : '' })}
+                                                onChange={(e) =>
+                                                        update({
+                                                                primary: e.target.checked
+                                                                        ? '1'
+                                                                        : '',
+                                                        })
+                                                }
                                         />
                                         <CheckboxField
                                                 label="Include inactive employees"
                                                 checked={filters.includeInactive}
-                                                onChange={(e) => update({ inactive: e.target.checked ? '1' : '' })}
+                                                onChange={(e) =>
+                                                        update({
+                                                                inactive: e.target.checked
+                                                                        ? '1'
+                                                                        : '',
+                                                        })
+                                                }
                                         />
                                 </div>
                                 {units.error !== undefined && (
@@ -167,7 +202,8 @@ export function EmployeesPage() {
                                 )}
                                 {comboMissing && (
                                         <Alert tone="warning">
-                                                {departmentName ?? 'This department'} is not set up at {plantName ?? 'this plant'}.
+                                                {departmentName ?? 'This department'} is not set up
+                                                at {plantName ?? 'this plant'}.
                                         </Alert>
                                 )}
                         </section>
@@ -180,17 +216,26 @@ export function EmployeesPage() {
                                 data.total > 0 ? (
                                         <EmptyState
                                                 title="This page is past the end of the results"
-                                                action={<Button onClick={() => update({})}>Go to the first page</Button>}
+                                                action={
+                                                        <Button onClick={() => update({})}>
+                                                                Go to the first page
+                                                        </Button>
+                                                }
                                         />
                                 ) : (
                                         <EmptyState title="No employees found">
-                                                {hasActiveFilters ? 'No one matches these filters.' : 'There are no employees in your access.'}
+                                                {hasActiveFilters
+                                                        ? 'No one matches these filters.'
+                                                        : 'There are no employees in your access.'}
                                         </EmptyState>
                                 )
                         ) : (
                                 <>
                                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                                <p className="text-sm text-slate-600" aria-live="polite">
+                                                <p
+                                                        className="text-sm text-slate-600"
+                                                        aria-live="polite"
+                                                >
                                                         {employees.isStale
                                                                 ? 'Updating results…'
                                                                 : `Showing ${formatNumber(firstRow)}–${formatNumber(lastRow)} of ${plural(data.total, 'employee')}, as of ${formatDate(data.as_of)}`}
@@ -201,7 +246,9 @@ export function EmployeesPage() {
                                                         <tr>
                                                                 <Th>Employee</Th>
                                                                 <Th>Assignments in this view</Th>
-                                                                <Th className="hidden sm:table-cell">Status</Th>
+                                                                <Th className="hidden sm:table-cell">
+                                                                        Status
+                                                                </Th>
                                                         </tr>
                                                 </thead>
                                                 <TBody>
@@ -210,18 +257,40 @@ export function EmployeesPage() {
                                                                         <Td className="sm:min-w-48">
                                                                                 <Link
                                                                                         to={`/employees/${employee.id}${filters.asOf ? `?as_of=${filters.asOf}` : ''}`}
-                                                                                        className={linkClasses}
+                                                                                        className={
+                                                                                                linkClasses
+                                                                                        }
                                                                                 >
-                                                                                        {employee.full_name}
+                                                                                        {
+                                                                                                employee.full_name
+                                                                                        }
                                                                                 </Link>
-                                                                                <p className="font-mono text-xs text-slate-600">{employee.employee_code}</p>
-<div className="mt-1 sm:hidden"><ActiveBadge active={employee.is_active} /></div>
+                                                                                <p className="font-mono text-xs text-slate-600">
+                                                                                        {
+                                                                                                employee.employee_code
+                                                                                        }
+                                                                                </p>
+                                                                                <div className="mt-1 sm:hidden">
+                                                                                        <ActiveBadge
+                                                                                                active={
+                                                                                                        employee.is_active
+                                                                                                }
+                                                                                        />
+                                                                                </div>
                                                                         </Td>
                                                                         <Td className="sm:min-w-64">
-                                                                                <AssignmentList employee={employee} />
+                                                                                <AssignmentList
+                                                                                        employee={
+                                                                                                employee
+                                                                                        }
+                                                                                />
                                                                         </Td>
                                                                         <Td className="hidden sm:table-cell">
-                                                                                <ActiveBadge active={employee.is_active} />
+                                                                                <ActiveBadge
+                                                                                        active={
+                                                                                                employee.is_active
+                                                                                        }
+                                                                                />
                                                                         </Td>
                                                                 </tr>
                                                         ))}
@@ -231,7 +300,16 @@ export function EmployeesPage() {
                                                 page={filters.page}
                                                 total={data.total}
                                                 disabled={employees.isStale}
-                                                onPage={(page) => setParams(withParams(params, { page: page > 1 ? page : undefined }))}
+                                                onPage={(page) =>
+                                                        setParams(
+                                                                withParams(params, {
+                                                                        page:
+                                                                                page > 1
+                                                                                        ? page
+                                                                                        : undefined,
+                                                                }),
+                                                        )
+                                                }
                                         />
                                 </>
                         )}
@@ -253,7 +331,10 @@ function Pagination({
         const pages = Math.max(1, Math.ceil(total / EMPLOYEE_PAGE_SIZE))
         if (pages <= 1) return null
         return (
-                <nav aria-label="Pagination" className="mt-4 flex items-center justify-between gap-2">
+                <nav
+                        aria-label="Pagination"
+                        className="mt-4 flex items-center justify-between gap-2"
+                >
                         <Button onClick={() => onPage(page - 1)} disabled={disabled || page <= 1}>
                                 <ChevronLeft aria-hidden="true" className="size-4" />
                                 Previous
@@ -261,7 +342,10 @@ function Pagination({
                         <span className="text-sm text-slate-600">
                                 Page {page} of {pages}
                         </span>
-                        <Button onClick={() => onPage(page + 1)} disabled={disabled || page >= pages}>
+                        <Button
+                                onClick={() => onPage(page + 1)}
+                                disabled={disabled || page >= pages}
+                        >
                                 Next
                                 <ChevronRight aria-hidden="true" className="size-4" />
                         </Button>

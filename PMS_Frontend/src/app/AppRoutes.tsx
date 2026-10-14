@@ -28,15 +28,30 @@ export function AppRoutes() {
                                 <Route index element={<DashboardPage />} />
                                 <Route element={<RequireOrgAccess />}>
                                         <Route path="plants" element={<PlantsPage />} />
-                                        <Route path="plants/:plantId" element={<PlantDetailPage />} />
+                                        <Route
+                                                path="plants/:plantId"
+                                                element={<PlantDetailPage />}
+                                        />
                                         <Route path="departments" element={<DepartmentsPage />} />
-                                        <Route path="departments/:departmentId" element={<DepartmentDetailPage />} />
-                                        <Route path="departments/:departmentId/plants/:plantId" element={<DepartmentUnitPage />} />
+                                        <Route
+                                                path="departments/:departmentId"
+                                                element={<DepartmentDetailPage />}
+                                        />
+                                        <Route
+                                                path="departments/:departmentId/plants/:plantId"
+                                                element={<DepartmentUnitPage />}
+                                        />
                                         <Route path="employees" element={<EmployeesPage />} />
-                                        <Route path="reports/headcount" element={<HeadcountPage />} />
+                                        <Route
+                                                path="reports/headcount"
+                                                element={<HeadcountPage />}
+                                        />
                                 </Route>
                                 {/* Also reachable by employees for their own record (the API decides). */}
-                                <Route path="employees/:employeeId" element={<EmployeeDetailPage />} />
+                                <Route
+                                        path="employees/:employeeId"
+                                        element={<EmployeeDetailPage />}
+                                />
                                 <Route path="profile" element={<ProfilePage />} />
                                 <Route path="*" element={<NotFoundPage />} />
                         </Route>

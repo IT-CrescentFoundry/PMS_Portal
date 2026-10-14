@@ -47,7 +47,7 @@ export class SessionNotPersistedError extends Error {
         constructor() {
                 super(
                         'You were signed in, but your browser did not keep the session. ' +
-                        'Open the portal at http://localhost:5173 (not 127.0.0.1) and allow cookies for this site.',
+                                'Open the portal at http://localhost:5173 (not 127.0.0.1) and allow cookies for this site.',
                 )
                 this.name = 'SessionNotPersistedError'
         }

@@ -26,17 +26,43 @@ export function PageHeader({ title, description, breadcrumbs, meta, actions }: P
                                 <nav aria-label="Breadcrumb">
                                         <ol className="flex flex-wrap items-center gap-1 text-sm text-slate-600">
                                                 {breadcrumbs.map((crumb, index) => {
-                                                        const isLast = index === breadcrumbs.length - 1
+                                                        const isLast =
+                                                                index === breadcrumbs.length - 1
                                                         return (
-                                                                <li key={`${crumb.label}-${index}`} className="flex items-center gap-1">
+                                                                <li
+                                                                        key={`${crumb.label}-${index}`}
+                                                                        className="flex items-center gap-1"
+                                                                >
                                                                         {crumb.to && !isLast ? (
-                                                                                <Link to={crumb.to} className="hover:text-brand-700 hover:underline">
-                                                                                        {crumb.label}
+                                                                                <Link
+                                                                                        to={
+                                                                                                crumb.to
+                                                                                        }
+                                                                                        className="hover:text-brand-700 hover:underline"
+                                                                                >
+                                                                                        {
+                                                                                                crumb.label
+                                                                                        }
                                                                                 </Link>
                                                                         ) : (
-                                                                                <span aria-current={isLast ? 'page' : undefined}>{crumb.label}</span>
+                                                                                <span
+                                                                                        aria-current={
+                                                                                                isLast
+                                                                                                        ? 'page'
+                                                                                                        : undefined
+                                                                                        }
+                                                                                >
+                                                                                        {
+                                                                                                crumb.label
+                                                                                        }
+                                                                                </span>
                                                                         )}
-                                                                        {!isLast && <ChevronRight aria-hidden="true" className="size-4 text-slate-400" />}
+                                                                        {!isLast && (
+                                                                                <ChevronRight
+                                                                                        aria-hidden="true"
+                                                                                        className="size-4 text-slate-400"
+                                                                                />
+                                                                        )}
                                                                 </li>
                                                         )
                                                 })}
@@ -45,9 +71,19 @@ export function PageHeader({ title, description, breadcrumbs, meta, actions }: P
                         )}
                         <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div className="min-w-0 space-y-1">
-                                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
-                                        {description && <div className="max-w-3xl text-sm text-slate-600">{description}</div>}
-                                        {meta && <div className="flex flex-wrap items-center gap-2 pt-1">{meta}</div>}
+                                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                                                {title}
+                                        </h1>
+                                        {description && (
+                                                <div className="max-w-3xl text-sm text-slate-600">
+                                                        {description}
+                                                </div>
+                                        )}
+                                        {meta && (
+                                                <div className="flex flex-wrap items-center gap-2 pt-1">
+                                                        {meta}
+                                                </div>
+                                        )}
                                 </div>
                                 {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
                         </div>

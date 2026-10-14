@@ -11,7 +11,11 @@ const TONES: Record<BadgeTone, string> = {
         info: 'bg-sky-50 text-sky-900 ring-sky-200',
 }
 
-interface BadgeProps { tone?: BadgeTone; className?: string; children: ReactNode; }
+interface BadgeProps {
+        tone?: BadgeTone
+        className?: string
+        children: ReactNode
+}
 
 export function Badge({ tone = 'neutral', className = '', children }: BadgeProps) {
         return (
