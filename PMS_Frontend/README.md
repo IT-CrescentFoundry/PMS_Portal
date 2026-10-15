@@ -66,15 +66,22 @@ GRANT ALL PRIVILEGES ON pms_e2e_test.* TO 'pms_app'@'localhost';
 
 Ports 8001 and 5174 must be free when the tests start.
 
+The e2e database keeps its data between runs, so specs must be repeatable:
+`e2e/jd-kpi.spec.ts` gives each JD a unique title and reopens the KPI sheet
+an earlier run published. No spec starts quarterly scoring, because that
+would lock the demo quarter for good.
+
 ## How it works
 
 ```
 src/
   app/            App shell and route table
   components/     layout (sidebar, header), common UI (buttons, states, fields), tables
-  features/       auth, dashboard, plants, departments, employees, reports, account
+  features/       auth, dashboard, plants, departments, employees, reports, account,
+                  jd (job descriptions), kpi (library, sheets, upload, deviations)
   services/       apiClient.ts (the only HTTP client) and one module per API area
-  hooks/          useApiQuery (cancellable, race-safe data loading)
+  hooks/          useApiQuery (cancellable, race-safe data loading),
+                  useAction (one save or sign-off at a time, with its error)
   types/api.ts    response types mirroring the backend schemas
   utils/          dates, labels, URL parameters
   test/           test setup, fetch mock, fixtures
@@ -106,12 +113,23 @@ e2e/              Playwright specs
 ### Authorization
 
 The backend is the only authority. The UI uses the `permissions` from
-`/me` (`org:read`, `self:read`) only to decide which navigation to show.
-Every request is still filtered and enforced by the API:
+`/me` (`org:read`, `self:read`, `jd:write`, `kpi:write`, …; see
+[docs/api.md](../docs/api.md)) only to decide which navigation and buttons to
+show. Every request is still filtered and enforced by the API:
 
-- 403 is shown as "Access denied";
+- 403 on a page load is shown as "Access denied";
 - 404 is shown as "not found, or you do not have access" (the two are never
-  told apart).
+  told apart);
+- a refused change (403/409 on a write) shows the API's own reason, e.g.
+  "Only a draft sheet can be edited; reopen it first.", and a 422 lists every
+  problem the API found (with the spreadsheet row for Excel uploads).
+
+### Weightages
+
+KPI weightages are entered and sent as text and added up in whole hundredths
+(`features/kpi/weightage.ts`), so 33.33 + 33.33 + 33.34 is exactly 100 and
+33.33 × 3 is 99.99. Floating point never decides whether a sheet may be
+published, and the API checks the same rule again.
 
 ### Data and figures
 

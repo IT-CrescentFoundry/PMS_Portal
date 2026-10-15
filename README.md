@@ -22,6 +22,16 @@ A demo **Performance Management System (PMS)** designed to digitize the employee
 
 Currently under development as a demonstration project using synthetic data. SAP integration and cloud storage will be considered in later phases.
 
+Implemented so far: organization structure (plants, shared departments,
+employees working in several plants), secured sign-in with role- and
+scope-based access, headcount reporting, an audit trail, and **JD & KPI
+setup**: role-specific job descriptions with a three-step sign-off, a shared
+KPI library with plant/department applicability, quarterly KPI sheets with
+weightages totalling 100%, Excel upload for Department Heads, locking when
+quarterly scoring starts, and deviations approved by both the HR Head and the
+Plant Head. Scoring itself (monthly data, quarterly normalization, annual
+scores) and budgets come in later stages.
+
 ## Getting Started
 
 The frontend and backend run as two local servers. Always open the portal at
@@ -32,7 +42,7 @@ The frontend and backend run as two local servers. Always open the portal at
 npm install
 npm run dev            # http://localhost:5173
 npm test               # component/unit tests (mocked API)
-npm run test:e2e       # browser tests against the real local backend and demo seed
+npm run test:e2e       # browser tests against an isolated backend and database (pms_e2e_test)
 ```
 See [PMS_Frontend/README.md](PMS_Frontend/README.md) for configuration and structure.
 
@@ -68,3 +78,4 @@ its own database; the development database `pms` is never used by tests.
 
 - Authentication, authorization, endpoints and demo accounts: [docs/api.md](docs/api.md)
 - Schema design and approved business rules: [docs/database-design.md](docs/database-design.md)
+- What the JD and KPI workbooks established (Stage J): [docs/business-requirements/stage-j-findings.md](docs/business-requirements/stage-j-findings.md)

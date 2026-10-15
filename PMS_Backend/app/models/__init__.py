@@ -7,7 +7,27 @@ from app.models.access import Role, User, UserRole, UserRoleScope
 from app.models.audit import AuditEvent
 from app.models.cycle import PmsCycle, PmsCycleQuarter
 from app.models.employee import Employee, EmployeeAssignment
-from app.models.enums import AuditActorType, CycleStatus, QuarterStatus, ScopeType
+from app.models.enums import (
+    AuditActorType,
+    CycleStatus,
+    DeviationStatus,
+    JDVersionStatus,
+    KpiDirection,
+    KpiSheetStatus,
+    NatureOfJob,
+    QuarterStatus,
+    ScopeType,
+    VacancyType,
+)
+from app.models.jd import JobDescription, JobDescriptionVersion
+from app.models.kpi import (
+    KpiApplicability,
+    KpiDefinition,
+    KpiDeviation,
+    KpiScoringPolicy,
+    KpiSheet,
+    KpiSheetItem,
+)
 from app.models.organization import Department, Designation, Plant, PlantDepartment
 
 __all__ = [
@@ -16,8 +36,21 @@ __all__ = [
     "CycleStatus",
     "Department",
     "Designation",
+    "DeviationStatus",
     "Employee",
     "EmployeeAssignment",
+    "JDVersionStatus",
+    "JobDescription",
+    "JobDescriptionVersion",
+    "KpiApplicability",
+    "KpiDefinition",
+    "KpiDeviation",
+    "KpiDirection",
+    "KpiScoringPolicy",
+    "KpiSheet",
+    "KpiSheetItem",
+    "KpiSheetStatus",
+    "NatureOfJob",
     "Plant",
     "PlantDepartment",
     "PmsCycle",
@@ -28,4 +61,5 @@ __all__ = [
     "User",
     "UserRole",
     "UserRoleScope",
+    "VacancyType",
 ]

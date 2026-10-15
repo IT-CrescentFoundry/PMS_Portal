@@ -12,7 +12,7 @@ Combination rules for multi-role users (deliberate, deny by default):
     was attached to it by mistake.
   * Unknown role codes carry no capabilities.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from app.models import User
@@ -21,20 +21,44 @@ from app.services.scope import AccessScope
 
 
 class Permission(StrEnum):
-    # Read plants, departments, employees and headcount within scope.
+    # Read plants, departments, employees, headcount, JDs and KPIs within scope.
     ORG_READ = "org:read"
-    # Read one's own employee record (self-service).
+    # Read one's own employee record and KPI sheets (self-service).
     SELF_READ = "self:read"
+    # Create/edit JD drafts and propose them (Hiring Manager / HOD / HR).
+    JD_WRITE = "jd:write"
+    # Second JD sign-off step.
+    JD_AUTHORISE = "jd:authorise"
+    # Final JD sign-off step.
+    JD_APPROVE = "jd:approve"
+    # KPI library, scoring policies, KPI sheets, uploads, publish/reopen,
+    # and requesting deviations.
+    KPI_WRITE = "kpi:write"
+    # Start quarterly scoring (locks the quarter); requires GLOBAL scope.
+    QUARTER_START = "quarter:start"
+    # Approve deviations on the HR side / the plant side.
+    DEVIATION_APPROVE_HR = "deviation:approve_hr"
+    DEVIATION_APPROVE_PLANT = "deviation:approve_plant"
 
 
+P = Permission
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
-    "ADMIN": frozenset({Permission.ORG_READ}),
-    "CHRO": frozenset({Permission.ORG_READ}),
-    "HR": frozenset({Permission.ORG_READ}),
-    "DEPT_HEAD": frozenset({Permission.ORG_READ}),
-    "BUDGET_USER": frozenset({Permission.ORG_READ}),
-    "EMPLOYEE": frozenset({Permission.SELF_READ}),
+    "ADMIN": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START}),
+    "CHRO": frozenset({P.ORG_READ, P.JD_APPROVE, P.QUARTER_START, P.DEVIATION_APPROVE_HR}),
+    "HR_HEAD": frozenset(
+        {P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.DEVIATION_APPROVE_HR}
+    ),
+    "HR": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE}),
+    "PLANT_HEAD": frozenset({P.ORG_READ, P.JD_AUTHORISE, P.DEVIATION_APPROVE_PLANT}),
+    "DEPT_HEAD": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE}),
+    "BUDGET_USER": frozenset({P.ORG_READ}),
+    "EMPLOYEE": frozenset({P.SELF_READ}),
 }
+
+# Roles allowed to fill in fields the JD form reserves for HR ("filled by HR").
+HR_ROLE_CODES = frozenset({"HR", "HR_HEAD", "CHRO", "ADMIN"})
+
+_EMPTY = AccessScope()
 
 
 @dataclass(frozen=True)
@@ -44,44 +68,70 @@ class Principal:
     user_id: int
     employee_id: int | None
     permissions: frozenset[Permission]
-    org_scope: AccessScope
+    scopes: dict[Permission, AccessScope] = field(default_factory=dict)
+    role_codes: frozenset[str] = frozenset()
+
+    def scope_for(self, permission: Permission) -> AccessScope:
+        """Where the caller may exercise `permission` (empty = nowhere)."""
+        return self.scopes.get(permission, _EMPTY)
+
+    @property
+    def org_scope(self) -> AccessScope:
+        return self.scope_for(Permission.ORG_READ)
 
     @property
     def can_read_self(self) -> bool:
         return self.employee_id is not None and Permission.SELF_READ in self.permissions
 
+    @property
+    def is_hr(self) -> bool:
+        return bool(self.role_codes & HR_ROLE_CODES)
+
+
+@dataclass
+class _ScopeBuilder:
+    is_global: bool = False
+    plant_ids: set[int] = field(default_factory=set)
+    department_ids: set[int] = field(default_factory=set)
+    unit_keys: set[tuple[int, int]] = field(default_factory=set)
+
+    def build(self) -> AccessScope:
+        return AccessScope(
+            is_global=self.is_global,
+            plant_ids=frozenset(self.plant_ids),
+            department_ids=frozenset(self.department_ids),
+            unit_keys=frozenset(self.unit_keys),
+        )
+
 
 def build_principal(user: User) -> Principal:
     permissions: set[Permission] = set()
-    is_global = False
-    plant_ids: set[int] = set()
-    department_ids: set[int] = set()
-    unit_keys: set[tuple[int, int]] = set()
+    builders: dict[Permission, _ScopeBuilder] = {}
+    role_codes: set[str] = set()
 
     for grant in user.user_roles:
+        role_codes.add(grant.role.code)
         role_permissions = ROLE_PERMISSIONS.get(grant.role.code, frozenset())
         permissions |= role_permissions
-        if Permission.ORG_READ not in role_permissions:
-            continue
-        for scope in grant.scopes:
-            match scope.scope_type:
-                case ScopeType.GLOBAL:
-                    is_global = True
-                case ScopeType.PLANT:
-                    plant_ids.add(scope.plant_id)
-                case ScopeType.DEPARTMENT:
-                    department_ids.add(scope.department_id)
-                case ScopeType.PLANT_DEPARTMENT:
-                    unit_keys.add((scope.plant_id, scope.department_id))
+        for permission in role_permissions:
+            if permission == Permission.SELF_READ:
+                continue  # self-service is not organizational scope
+            builder = builders.setdefault(permission, _ScopeBuilder())
+            for scope in grant.scopes:
+                match scope.scope_type:
+                    case ScopeType.GLOBAL:
+                        builder.is_global = True
+                    case ScopeType.PLANT:
+                        builder.plant_ids.add(scope.plant_id)
+                    case ScopeType.DEPARTMENT:
+                        builder.department_ids.add(scope.department_id)
+                    case ScopeType.PLANT_DEPARTMENT:
+                        builder.unit_keys.add((scope.plant_id, scope.department_id))
 
     return Principal(
         user_id=user.id,
         employee_id=user.employee_id,
         permissions=frozenset(permissions),
-        org_scope=AccessScope(
-            is_global=is_global,
-            plant_ids=frozenset(plant_ids),
-            department_ids=frozenset(department_ids),
-            unit_keys=frozenset(unit_keys),
-        ),
+        scopes={permission: builder.build() for permission, builder in builders.items()},
+        role_codes=frozenset(role_codes),
     )

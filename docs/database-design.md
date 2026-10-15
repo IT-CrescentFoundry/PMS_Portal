@@ -199,6 +199,97 @@ Rules (`app/services/audit.py`):
   application account only `INSERT, SELECT` on `audit_events`, or add a
   trigger, which needs additional MySQL privileges.
 
+## JD and KPI management (Stage J)
+
+Evidence: [business-requirements/stage-j-findings.md](business-requirements/stage-j-findings.md).
+
+Decisions confirmed by the business (2026-10-14):
+
+- A quarter **locks when an authorised user starts quarterly scoring**.
+- Deviations are approved by an **HR Head** (new `HR_HEAD` role, or the CHRO)
+  and a **Plant Head** (new `PLANT_HEAD` role). Both roles are plant-scoped,
+  and two different people approve, neither of them the requester.
+- The JD stores **all fields of the current JD format**, including the
+  requisition fields.
+- JD versions follow the format's **three-step sign-off**.
+
+### Tables
+
+| Table | Purpose | Key rules |
+|---|---|---|
+| `job_descriptions` | A **role** (not a designation): title, department, optional plant (NULL = every plant where the department exists), optional designation | `code` unique. One role title per department and plant: unique (`department_id`, plant key, `title`). The plant key is a generated column that makes NULL comparable. |
+| `job_description_versions` | Every revision of a role's JD: document control, all current-format fields, responsibility sections and technical/behavioural competencies (JSON), and the sign-off trail | unique (`job_description_id`, `version_no`). At most one **APPROVED** version per JD, and at most one open draft (DRAFT, PROPOSED or AUTHORISED), both enforced by generated-column unique keys. Content can be edited only in DRAFT. |
+| `kpi_scoring_policies` | Reusable **achievement matrix**: direction (higher-is-better, lower-is-better, zero tolerance), ordered bands `{threshold %, score}` with strict comparison as in the workbook, a fallback score, and met/breached scores for zero tolerance | `code` and `name` unique. Scores 0–5; whether 0 is allowed is still open (finding D5). |
+| `kpi_definitions` | Shared **KPI library** entry: one row per *meaning* (name, description, unit, direction, default scoring policy, data source) | `code` and `name` unique. Reused across employees and quarters, never copied per employee. |
+| `kpi_applicabilities` | Where a KPI may be used: department at a plant, a department at all plants, or company-wide | Plant and department are matched as a pair, with a composite FK to `plant_departments`; duplicates are blocked by generated-column keys. |
+| `kpi_sheets` | An employee **assignment's KPI set for one quarter** (the assignment is the plant-department unit, per the approved multi-plant rules). Optional link to the role's JD. | unique (`employee_assignment_id`, `cycle_quarter_id`). Status DRAFT → PUBLISHED → LOCKED. |
+| `kpi_sheet_items` | One KPI on a sheet: weightage, quarterly target and target note, unit, scoring policy. At publication, a **frozen copy of the policy** is stored so later policy edits never change history. | unique (`sheet_id`, `kpi_definition_id`). 0 < weightage ≤ 100, two decimal places. |
+| `kpi_deviations` | Request to change a **locked** sheet: reason, original items, proposed items, HR Head and Plant Head approvals with timestamps, rejection | One PENDING request per sheet. The two approvers must differ (CHECK constraint), and neither may be the requester (service rule). |
+
+### Workflow and validation
+
+- **JD sign-off.** DRAFT → *propose* (Dept Head / HR / HR Head) → PROPOSED →
+  *authorise* (Plant Head) → AUTHORISED → *approve* (CHRO) → APPROVED.
+  - The previously approved version becomes SUPERSEDED.
+  - Either reviewer can *return* the version to DRAFT with a reason.
+  - Consecutive steps must be signed by different people.
+  - A new revision copies the approved version into a new DRAFT.
+  - "Available budget" can be set only by HR roles, as the form says.
+- **KPI sheets.**
+  - DRAFT sheets are edited freely, including via Excel upload.
+  - **Publish** requires weightages to total exactly **100.00 %**. Totals are
+    computed with decimals; 33.33 × 3 = 99.99 is refused.
+  - Every KPI must be applicable to the assignment's plant and department,
+    and the assignment must be current during the quarter.
+  - Having fewer than 3 or more than 5 KPIs produces a warning, not an error
+    (the requirements call the count guidance).
+  - A published sheet can be reopened while its quarter has not started.
+  - **Start quarterly scoring** (HR Head, CHRO or Admin, with company-wide
+    scope) moves the quarter to OPEN and locks every published sheet. After
+    that, no ordinary edit, publish or reopen is accepted for that quarter.
+  - A sheet can be copied into a later quarter as a new draft.
+- **Deviations.** Only for sheets in a started quarter.
+  - The request records a reason and the full proposed item list, which must
+    total 100 %.
+  - When both approvals are present, the change is applied **in the same
+    transaction** as the final approval.
+  - It is audited with the original and revised values, both approvers and
+    their timestamps.
+- **Excel upload** (`.xlsx`, Department Head template).
+  1. *Preview* parses and validates without writing.
+  2. *Confirm* re-validates and writes all affected sheets as DRAFT in one
+     transaction. It refuses if any error remains.
+
+  Checks: employee in scope; assignment resolvable (plant and department
+  required when ambiguous); KPI exists in the library and applies to that
+  unit; no duplicate KPI per employee; numeric weightage and target; totals
+  = 100 %; the quarter has not started. Uploaded sheets still need publishing:
+  that is the review step.
+- **Audit.** Every consequential action writes an `audit_events` row in the
+  same transaction: JD create, edit and each sign-off step; KPI and policy
+  changes; sheet edits, publish, reopen, upload and copy; quarter start; and
+  deviation request, approval, rejection and application.
+
+### Permissions (added to the role map)
+
+| Capability | Roles | Scope |
+|---|---|---|
+| Read JDs, KPIs, policies, sheets | all `org:read` roles; employees see their own sheets | scoped |
+| Create and edit JD drafts, propose | DEPT_HEAD, HR, HR_HEAD, ADMIN | scoped |
+| Authorise JD | PLANT_HEAD | scoped |
+| Approve JD | CHRO | scoped |
+| KPI library, sheets, upload, publish, reopen, request deviation | DEPT_HEAD, HR, HR_HEAD, ADMIN | scoped; company-wide KPIs and policies need GLOBAL |
+| Start quarterly scoring | HR_HEAD, CHRO, ADMIN | **GLOBAL** only |
+| Approve deviation as HR Head | HR_HEAD, CHRO | scoped to the sheet's unit |
+| Approve deviation as Plant Head | PLANT_HEAD | scoped to the sheet's unit |
+
+### Not in Stage J
+
+Monthly and quarterly actuals, score computation for real data, the
+scoring-period workflow, normalisation, increments, CR and budgets. A
+`preview` endpoint evaluates a scoring policy for a given achievement %; it
+exists to check policies against the workbook examples.
+
 ## Deferred, by design
 
 - **Normalization policy** (configurable 20–60–20 bands, eligible population,

@@ -225,7 +225,8 @@ def test_me_reports_roles_scopes_and_permissions(client_for, make_user, org):
     assert dept_head_scope["scope_type"] == "DEPARTMENT"
     assert dept_head_scope["plant"] is None
     assert dept_head_scope["department"]["code"] == "TST-Q"
-    assert body["permissions"] == ["org:read", "self:read"]
+    # DEPT_HEAD (org read + JD/KPI authoring) combined with EMPLOYEE (self-service).
+    assert body["permissions"] == ["jd:write", "kpi:write", "org:read", "self:read"]
 
 
 # --- password management --------------------------------------------------------

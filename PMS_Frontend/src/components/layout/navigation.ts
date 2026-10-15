@@ -2,12 +2,23 @@ import {
         Building2,
         ChartColumn,
         Factory,
+        FileSpreadsheet,
+        FileText,
+        GitPullRequestArrow,
         LayoutDashboard,
+        ListChecks,
+        Target,
         UserRound,
         Users,
         type LucideIcon,
 } from 'lucide-react'
-import { canReadOrganization, canReadOwnRecord } from '../../features/auth/permissions'
+import {
+        canApproveDeviationAsHR,
+        canApproveDeviationAsPlant,
+        canReadOrganization,
+        canReadOwnRecord,
+        canWriteKpi,
+} from '../../features/auth/permissions'
 import type { CurrentUser } from '../../types/api'
 
 export interface NavItem {
@@ -28,7 +39,14 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
         const groups: NavGroup[] = [
                 {
                         label: 'Overview',
-                        items: [{ label: 'Dashboard', to: '/', icon: LayoutDashboard, end: true }],
+                        items: [
+                                {
+                                        label: 'Dashboard',
+                                        to: '/',
+                                        icon: LayoutDashboard,
+                                        end: true,
+                                },
+                        ],
                 },
         ]
         if (canReadOrganization(user)) {
@@ -36,13 +54,21 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                         {
                                 label: 'Organization',
                                 items: [
-                                        { label: 'Plants', to: '/plants', icon: Factory },
+                                        {
+                                                label: 'Plants',
+                                                to: '/plants',
+                                                icon: Factory,
+                                        },
                                         {
                                                 label: 'Departments',
                                                 to: '/departments',
                                                 icon: Building2,
                                         },
-                                        { label: 'Employees', to: '/employees', icon: Users },
+                                        {
+                                                label: 'Employees',
+                                                to: '/employees',
+                                                icon: Users,
+                                        },
                                 ],
                         },
                         {
@@ -56,9 +82,54 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                                 ],
                         },
                 )
+                const performance: NavItem[] = [
+                        {
+                                label: 'Job descriptions',
+                                to: '/jds',
+                                icon: FileText,
+                        },
+                        {
+                                label: 'KPI library',
+                                to: '/kpi/library',
+                                icon: Target,
+                        },
+                        {
+                                label: 'KPI sheets',
+                                to: '/kpi/sheets',
+                                icon: ListChecks,
+                        },
+                ]
+                if (canWriteKpi(user)) {
+                        performance.push({
+                                label: 'Excel upload',
+                                to: '/kpi/upload',
+                                icon: FileSpreadsheet,
+                        })
+                }
+                if (
+                        canWriteKpi(user) ||
+                        canApproveDeviationAsHR(user) ||
+                        canApproveDeviationAsPlant(user)
+                ) {
+                        performance.push({
+                                label: 'Deviations',
+                                to: '/kpi/deviations',
+                                icon: GitPullRequestArrow,
+                        })
+                }
+                // Before Reports, after Organization.
+                groups.splice(2, 0, {
+                        label: 'JD & KPI setup',
+                        items: performance,
+                })
         }
         const account: NavItem[] = [
-                { label: 'My profile', to: '/profile', icon: UserRound, end: true },
+                {
+                        label: 'My profile',
+                        to: '/profile',
+                        icon: UserRound,
+                        end: true,
+                },
         ]
         if (user.employee && canReadOwnRecord(user) && !canReadOrganization(user)) {
                 account.push({
@@ -76,6 +147,12 @@ const SECTION_TITLES: [prefix: string, title: string][] = [
         ['/departments', 'Organization · Departments'],
         ['/employees', 'Organization · Employees'],
         ['/reports/headcount', 'Reports · Headcount'],
+        ['/jds', 'JD & KPI setup · Job descriptions'],
+        ['/kpi/library', 'JD & KPI setup · KPI library'],
+        ['/kpi/policies', 'JD & KPI setup · Scoring rules'],
+        ['/kpi/sheets', 'JD & KPI setup · KPI sheets'],
+        ['/kpi/upload', 'JD & KPI setup · Excel upload'],
+        ['/kpi/deviations', 'JD & KPI setup · Deviations'],
         ['/profile', 'Account · My profile'],
 ]
 

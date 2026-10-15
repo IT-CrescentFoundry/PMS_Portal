@@ -4,14 +4,19 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.auth.csrf import CSRF_HEADER, CSRFMiddleware
 from app.auth.rate_limit import LoginRateLimiter
 from app.config import get_auth_settings, get_security_settings
 from app.db import engine
-from app.routers import auth, employees, organization, reports
-from app.services.errors import NotFoundError
+from app.routers import auth, employees, jd, kpi, organization, reports
+from app.services.errors import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationFailedError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +48,44 @@ app.include_router(auth.router)
 app.include_router(organization.router)
 app.include_router(employees.router)
 app.include_router(reports.router)
+app.include_router(jd.router)
+app.include_router(kpi.router)
 
 
 @app.exception_handler(NotFoundError)
 def not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(PermissionDeniedError)
+def permission_handler(request: Request, exc: PermissionDeniedError) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+
+@app.exception_handler(ConflictError)
+def conflict_handler(request: Request, exc: ConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(ValidationFailedError)
+def validation_handler(request: Request, exc: ValidationFailedError) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Please correct the problems listed.",
+            "issues": [{"message": i.message, "field": i.field, "row": i.row} for i in exc.issues],
+        },
+    )
+
+
+@app.exception_handler(IntegrityError)
+def integrity_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    # A race with another user's change; never echo SQL details.
+    logger.warning("Integrity error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "This change conflicts with existing data. Reload and try again."},
+    )
 
 
 @app.get("/")

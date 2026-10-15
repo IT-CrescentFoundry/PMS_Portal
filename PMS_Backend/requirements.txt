@@ -10,3 +10,5 @@ cryptography==50.0.2  # required by PyMySQL for MySQL 8 caching_sha2_password au
 python-dotenv==1.2.4
 PyJWT==2.15.1  # signed, expiring access tokens (HS256)
 argon2-cffi==25.1.0  # Argon2id password hashing
+openpyxl==3.1.5  # KPI Excel upload and template
+defusedxml==0.7.1  # used automatically by openpyxl to parse untrusted .xlsx files safely

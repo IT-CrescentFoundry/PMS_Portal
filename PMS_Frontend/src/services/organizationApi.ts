@@ -1,5 +1,17 @@
-import type { Department, DepartmentDetail, OrgUnit, Plant, PlantDetail } from '../types/api'
+import type {
+        Department,
+        DepartmentDetail,
+        DesignationRef,
+        OrgUnit,
+        Plant,
+        PlantDetail,
+} from '../types/api'
 import { apiRequest } from './apiClient'
+
+/** Active job titles (company-wide master). */
+export function listDesignations(signal?: AbortSignal): Promise<DesignationRef[]> {
+        return apiRequest<DesignationRef[]>('/api/designations', { signal })
+}
 
 export function listPlants(includeInactive: boolean, signal?: AbortSignal): Promise<Plant[]> {
         return apiRequest<Plant[]>('/api/plants', {

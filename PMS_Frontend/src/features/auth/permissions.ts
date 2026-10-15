@@ -7,10 +7,61 @@ import type { CurrentUser } from '../../types/api'
 
 export const PERMISSION_ORG_READ = 'org:read'
 export const PERMISSION_SELF_READ = 'self:read'
+export const PERMISSION_JD_WRITE = 'jd:write'
+export const PERMISSION_JD_AUTHORISE = 'jd:authorise'
+export const PERMISSION_JD_APPROVE = 'jd:approve'
+export const PERMISSION_KPI_WRITE = 'kpi:write'
+export const PERMISSION_QUARTER_START = 'quarter:start'
+export const PERMISSION_DEVIATION_HR = 'deviation:approve_hr'
+export const PERMISSION_DEVIATION_PLANT = 'deviation:approve_plant'
+
+/** Roles that may fill HR-only JD fields (available budget). Mirrors the API. */
+const HR_ROLE_CODES = new Set(['HR', 'HR_HEAD', 'CHRO', 'ADMIN'])
+
+function has(user: CurrentUser, permission: string): boolean {
+        return user.permissions.includes(permission)
+}
 
 /** May view plants, departments, employees and headcount (within scopes). */
 export function canReadOrganization(user: CurrentUser): boolean {
-        return user.permissions.includes(PERMISSION_ORG_READ)
+        return has(user, PERMISSION_ORG_READ)
+}
+
+/** May draft and propose JDs (Proposed by HOD), within scope. */
+export function canWriteJD(user: CurrentUser): boolean {
+        return has(user, PERMISSION_JD_WRITE)
+}
+
+/** Plant Head sign-off ("Authorised by"). */
+export function canAuthoriseJD(user: CurrentUser): boolean {
+        return has(user, PERMISSION_JD_AUTHORISE)
+}
+
+/** COO/CHRO sign-off ("Approved by"). */
+export function canApproveJD(user: CurrentUser): boolean {
+        return has(user, PERMISSION_JD_APPROVE)
+}
+
+export function isHrUser(user: CurrentUser): boolean {
+        return user.roles.some((role) => HR_ROLE_CODES.has(role.code))
+}
+
+/** May maintain the KPI library and employees' quarterly KPI sheets, within scope. */
+export function canWriteKpi(user: CurrentUser): boolean {
+        return has(user, PERMISSION_KPI_WRITE)
+}
+
+/** May start quarterly scoring (needs company-wide scope; the API checks). */
+export function canStartScoring(user: CurrentUser): boolean {
+        return has(user, PERMISSION_QUARTER_START)
+}
+
+export function canApproveDeviationAsHR(user: CurrentUser): boolean {
+        return has(user, PERMISSION_DEVIATION_HR)
+}
+
+export function canApproveDeviationAsPlant(user: CurrentUser): boolean {
+        return has(user, PERMISSION_DEVIATION_PLANT)
 }
 
 /** May open their own employee record. */

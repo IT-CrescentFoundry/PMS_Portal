@@ -27,6 +27,46 @@ class QuarterStatus(StrEnum):
     CLOSED = "CLOSED"
 
 
+class JDVersionStatus(StrEnum):
+    """Three-step sign-off from the current JD format, then supersession."""
+
+    DRAFT = "DRAFT"            # editable
+    PROPOSED = "PROPOSED"      # by Hiring Manager / HOD (or HR)
+    AUTHORISED = "AUTHORISED"  # by Plant Head
+    APPROVED = "APPROVED"      # by CHRO: the active version of the role
+    SUPERSEDED = "SUPERSEDED"  # replaced by a later approved version
+
+
+class VacancyType(StrEnum):
+    NEW = "NEW"
+    REPLACEMENT = "REPLACEMENT"
+    EXISTING = "EXISTING"
+
+
+class NatureOfJob(StrEnum):
+    PERMANENT = "PERMANENT"
+    TEMPORARY = "TEMPORARY"
+    CONTRACTUAL = "CONTRACTUAL"
+
+
+class KpiDirection(StrEnum):
+    HIGHER_IS_BETTER = "HIGHER_IS_BETTER"
+    LOWER_IS_BETTER = "LOWER_IS_BETTER"
+    ZERO_TOLERANCE = "ZERO_TOLERANCE"  # target is zero occurrences
+
+
+class KpiSheetStatus(StrEnum):
+    DRAFT = "DRAFT"          # editable (also via Excel upload)
+    PUBLISHED = "PUBLISHED"  # validated (weightages = 100 %); reopenable until scoring starts
+    LOCKED = "LOCKED"        # quarterly scoring started; changes only via approved deviation
+
+
+class DeviationStatus(StrEnum):
+    PENDING = "PENDING"
+    APPLIED = "APPLIED"    # both approvals given; change applied to the sheet
+    REJECTED = "REJECTED"
+
+
 class AuditActorType(StrEnum):
     """Who performed an audited action."""
 

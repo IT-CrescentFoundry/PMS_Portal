@@ -1,10 +1,13 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import OrgScope, get_current_user
 from app.dependencies import get_db
+from app.models import Designation
+from app.schemas.employee import DesignationRef
 from app.schemas.organization import (
     DepartmentDetail,
     DepartmentRead,
@@ -86,6 +89,15 @@ def list_departments(
     return org.list_departments(
         db, access=scope, include_inactive=include_inactive, plant_id=plant_id
     )
+
+
+@router.get("/designations", response_model=list[DesignationRef])
+def list_designations(db: DbSession, _scope: OrgScope):
+    """Active job titles (a company-wide master; no plant data). Used to link
+    a role-specific JD to a designation."""
+    return db.scalars(
+        select(Designation).where(Designation.is_active).order_by(Designation.name)
+    ).all()
 
 
 @router.get("/departments/{department_id}", response_model=DepartmentDetail)

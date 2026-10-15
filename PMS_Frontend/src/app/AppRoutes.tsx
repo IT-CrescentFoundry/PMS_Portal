@@ -10,6 +10,17 @@ import { DepartmentsPage } from '../features/departments/DepartmentsPage'
 import { DepartmentUnitPage } from '../features/departments/DepartmentUnitPage'
 import { EmployeeDetailPage } from '../features/employees/EmployeeDetailPage'
 import { EmployeesPage } from '../features/employees/EmployeesPage'
+import { JDDetailPage } from '../features/jd/JDDetailPage'
+import { JDCreatePage, JDEditPage } from '../features/jd/JDEditorPage'
+import { JDListPage } from '../features/jd/JDListPage'
+import { DeviationDetailPage } from '../features/kpi/DeviationDetailPage'
+import { DeviationsPage } from '../features/kpi/DeviationsPage'
+import { KpiCreatePage, KpiEditPage } from '../features/kpi/KpiEditorPage'
+import { KpiLibraryPage } from '../features/kpi/KpiLibraryPage'
+import { KpiSheetPage } from '../features/kpi/KpiSheetPage'
+import { KpiSheetsPage } from '../features/kpi/KpiSheetsPage'
+import { KpiUploadPage } from '../features/kpi/KpiUploadPage'
+import { ScoringPoliciesPage } from '../features/kpi/ScoringPoliciesPage'
 import { PlantDetailPage } from '../features/plants/PlantDetailPage'
 import { PlantsPage } from '../features/plants/PlantsPage'
 import { HeadcountPage } from '../features/reports/HeadcountPage'
@@ -45,6 +56,34 @@ export function AppRoutes() {
                                         <Route
                                                 path="reports/headcount"
                                                 element={<HeadcountPage />}
+                                        />
+                                        <Route path="jds" element={<JDListPage />} />
+                                        <Route path="jds/new" element={<JDCreatePage />} />
+                                        <Route path="jds/:jdId" element={<JDDetailPage />} />
+                                        <Route
+                                                path="jds/:jdId/versions/:versionId/edit"
+                                                element={<JDEditPage />}
+                                        />
+                                        <Route path="kpi/library" element={<KpiLibraryPage />} />
+                                        <Route path="kpi/library/new" element={<KpiCreatePage />} />
+                                        <Route
+                                                path="kpi/library/:kpiId"
+                                                element={<KpiEditPage />}
+                                        />
+                                        <Route
+                                                path="kpi/policies"
+                                                element={<ScoringPoliciesPage />}
+                                        />
+                                        <Route path="kpi/sheets" element={<KpiSheetsPage />} />
+                                        <Route
+                                                path="kpi/sheets/:sheetId"
+                                                element={<KpiSheetPage />}
+                                        />
+                                        <Route path="kpi/upload" element={<KpiUploadPage />} />
+                                        <Route path="kpi/deviations" element={<DeviationsPage />} />
+                                        <Route
+                                                path="kpi/deviations/:deviationId"
+                                                element={<DeviationDetailPage />}
                                         />
                                 </Route>
                                 {/* Also reachable by employees for their own record (the API decides). */}

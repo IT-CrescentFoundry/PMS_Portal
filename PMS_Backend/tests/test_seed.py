@@ -10,11 +10,11 @@ DEMO_PASSWORD = "synthetic-demo-password"  # test-only value
 
 def test_seed_hashes_demo_password_and_stays_idempotent(db):
     first = seed(db, DEMO_PASSWORD)
-    assert first[("users (password)", "updated")] == 7
+    assert first[("users (password)", "updated")] == 9  # 7 original + HR Head + Plant Head
     second = seed(db, DEMO_PASSWORD)
-    assert second[("users (password)", "unchanged")] == 7
+    assert second[("users (password)", "unchanged")] == 9
     hashes = db.scalars(select(User.password_hash).where(User.username.like("demo.%"))).all()
-    assert len(hashes) == 7
+    assert len(hashes) == 9
     assert all(h.startswith("$argon2id$") and DEMO_PASSWORD not in h for h in hashes)
 
 

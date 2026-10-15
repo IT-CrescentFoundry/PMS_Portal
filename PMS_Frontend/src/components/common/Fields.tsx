@@ -1,4 +1,10 @@
-import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
+import {
+        useId,
+        type InputHTMLAttributes,
+        type ReactNode,
+        type SelectHTMLAttributes,
+        type TextareaHTMLAttributes,
+} from 'react'
 import { inputClasses } from './styles'
 
 interface FieldShellProps {
@@ -62,24 +68,28 @@ interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
         label: string
         options: SelectOption[]
         hint?: ReactNode
+        error?: string
 }
 
 export function SelectField({
         label,
         options,
         hint,
+        error,
         id,
         className = '',
         ...rest
 }: SelectFieldProps) {
         const generatedId = useId()
         const fieldId = id ?? generatedId
+        const describedBy = error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined
         return (
-                <FieldShell id={fieldId} label={label} hint={hint}>
+                <FieldShell id={fieldId} label={label} hint={hint} error={error}>
                         <select
                                 id={fieldId}
                                 className={`${inputClasses} pr-8 ${className}`}
-                                aria-describedby={hint ? `${fieldId}-hint` : undefined}
+                                aria-invalid={error ? true : undefined}
+                                aria-describedby={describedBy}
                                 {...rest}
                         >
                                 {options.map((option) => (
@@ -88,6 +98,38 @@ export function SelectField({
                                         </option>
                                 ))}
                         </select>
+                </FieldShell>
+        )
+}
+
+interface TextAreaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+        label: string
+        hint?: ReactNode
+        error?: string
+}
+
+export function TextAreaField({
+        label,
+        hint,
+        error,
+        id,
+        className = '',
+        rows = 3,
+        ...rest
+}: TextAreaFieldProps) {
+        const generatedId = useId()
+        const fieldId = id ?? generatedId
+        const describedBy = error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined
+        return (
+                <FieldShell id={fieldId} label={label} hint={hint} error={error}>
+                        <textarea
+                                id={fieldId}
+                                rows={rows}
+                                className={`${inputClasses} h-auto py-2 ${className}`}
+                                aria-invalid={error ? true : undefined}
+                                aria-describedby={describedBy}
+                                {...rest}
+                        />
                 </FieldShell>
         )
 }

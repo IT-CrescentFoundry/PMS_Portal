@@ -168,7 +168,16 @@ def make_user(db: Session) -> Callable[..., User]:
 def client_for(db: Session) -> Iterator[Callable[[User | None], TestClient]]:
     """TestClient factory: client_for(user) sends that user's bearer token;
     client_for(None) is anonymous. All share the rolled-back `db` session."""
-    app.dependency_overrides[get_db] = lambda: db
+
+    def request_session() -> Iterator[Session]:
+        # Release the current savepoint so this request starts from a fresh
+        # one, like a real per-request session: a failed request then rolls
+        # back only its own changes, never the test's fixture data. Everything
+        # is still discarded when the outer test transaction rolls back.
+        db.commit()
+        yield db
+
+    app.dependency_overrides[get_db] = request_session
 
     def _make(user: User | None) -> TestClient:
         headers = {}
@@ -254,3 +263,99 @@ def org(db: Session) -> Org:
     add_assignment(db, o, "003", ("P2", "Q"), is_primary=True, effective_from=date(2026, 7, 1))
     add_assignment(db, o, "004", ("P1", "M"), is_primary=False)
     return o
+
+
+# --- Stage J (JD / KPI) fixtures ---------------------------------------------------------
+
+from app.models import (  # noqa: E402
+    KpiApplicability,
+    KpiDefinition,
+    KpiDirection,
+    KpiScoringPolicy,
+    PmsCycle,
+    PmsCycleQuarter,
+)
+
+
+@dataclass
+class KpiEnv:
+    """Synthetic KPI setup on top of `org`.
+
+    Quarters TQ1 (2026-07-01..09-30) and TQ2 (2026-10-01..12-31), both DRAFT.
+    KPIs: profit (company-wide, higher), claims (dept Q at all plants, zero
+    tolerance), lower (dept Q, lower-is-better), yield_p1 (unit P1/Q only),
+    maint (unit P1/M only).
+    """
+
+    org: Org
+    cycle: PmsCycle
+    q1: PmsCycleQuarter
+    q2: PmsCycleQuarter
+    policies: dict[str, KpiScoringPolicy]
+    kpis: dict[str, KpiDefinition]
+
+    def assignment_id(self, db: Session, employee: str, unit: tuple[str, str]) -> int:
+        return db.scalar(
+            select(EmployeeAssignment.id).where(
+                EmployeeAssignment.employee_id == self.org.employees[employee].id,
+                EmployeeAssignment.plant_department_id == self.org.units[unit].id,
+            ).order_by(EmployeeAssignment.effective_from.desc())
+        )
+
+
+@pytest.fixture
+def kpi_env(db: Session, org: Org) -> KpiEnv:
+    cycle = PmsCycle(code="TST-FY", name="Test FY", start_date=date(2026, 7, 1), end_date=date(2027, 6, 30))
+    db.add(cycle)
+    db.flush()
+    q1 = PmsCycleQuarter(cycle_id=cycle.id, quarter_number=1, name="TQ1",
+                         start_date=date(2026, 7, 1), end_date=date(2026, 9, 30))
+    q2 = PmsCycleQuarter(cycle_id=cycle.id, quarter_number=2, name="TQ2",
+                         start_date=date(2026, 10, 1), end_date=date(2026, 12, 31))
+    policies = {
+        "A": KpiScoringPolicy(code="TPOL-A", name="Test higher", direction=KpiDirection.HIGHER_IS_BETTER,
+                              bands=[{"threshold": 100, "score": 5}, {"threshold": 90, "score": 4},
+                                     {"threshold": 80, "score": 3}, {"threshold": 70, "score": 2},
+                                     {"threshold": 50, "score": 1}], fallback_score=0),
+        "B": KpiScoringPolicy(code="TPOL-B", name="Test lower", direction=KpiDirection.LOWER_IS_BETTER,
+                              bands=[{"threshold": 100, "score": 5}, {"threshold": 110, "score": 4},
+                                     {"threshold": 120, "score": 3}, {"threshold": 150, "score": 2}],
+                              fallback_score=1),
+        "Z": KpiScoringPolicy(code="TPOL-Z", name="Test zero", direction=KpiDirection.ZERO_TOLERANCE,
+                              bands=[], fallback_score=0, met_score=5, breached_score=0),
+    }
+    db.add_all([q1, q2, *policies.values()])
+    db.flush()
+    o = org
+
+    def kpi(code, name, direction, policy, scopes):
+        k = KpiDefinition(code=code, name=name, unit="%", direction=direction,
+                          default_scoring_policy_id=policies[policy].id,
+                          applicabilities=[KpiApplicability(plant_id=p, department_id=d) for p, d in scopes])
+        db.add(k)
+        return k
+
+    kpis = {
+        "profit": kpi("TKPI-1", "Test profit", KpiDirection.HIGHER_IS_BETTER, "A", [(None, None)]),
+        "claims": kpi("TKPI-2", "Test claims", KpiDirection.ZERO_TOLERANCE, "Z",
+                      [(None, o.departments["Q"].id)]),
+        "lower": kpi("TKPI-3", "Test inventory days", KpiDirection.LOWER_IS_BETTER, "B",
+                     [(None, o.departments["Q"].id)]),
+        "yield_p1": kpi("TKPI-4", "Test yield P1", KpiDirection.HIGHER_IS_BETTER, "A",
+                        [(o.plants["P1"].id, o.departments["Q"].id)]),
+        "maint": kpi("TKPI-5", "Test maintenance", KpiDirection.HIGHER_IS_BETTER, "A",
+                     [(o.plants["P1"].id, o.departments["M"].id)]),
+    }
+    db.flush()
+    return KpiEnv(org, cycle, q1, q2, policies, kpis)
+
+
+@pytest.fixture
+def as_role(make_user, client_for):
+    """as_role("tst.x", [("HR_HEAD", [(ScopeType.PLANT, plant, None)])]) -> (user, client)."""
+
+    def _make(username, roles, employee=None):
+        user = make_user(username, roles=roles, employee=employee)
+        return user, client_for(user)
+
+    return _make

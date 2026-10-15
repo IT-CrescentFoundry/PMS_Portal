@@ -12,7 +12,7 @@ Scenarios covered:
 """
 from datetime import date
 
-from app.models.enums import CycleStatus, QuarterStatus, ScopeType
+from app.models.enums import CycleStatus, KpiDirection, QuarterStatus, ScopeType
 
 PLANTS = [
     {"code": "PLT-A", "name": "Demo Plant A", "location": "Northfield (fictional)"},
@@ -123,6 +123,8 @@ ROLES = [
     {"code": "DEPT_HEAD", "name": "Department Head", "description": "Department responsibility within assigned scope"},
     {"code": "EMPLOYEE", "name": "Employee", "description": "Self-service access to own records"},
     {"code": "BUDGET_USER", "name": "Budget User", "description": "Authorized budget planning and allocation"},
+    {"code": "HR_HEAD", "name": "HR Head", "description": "Approves KPI deviations (HR side) within assigned scope"},
+    {"code": "PLANT_HEAD", "name": "Plant Head", "description": "Authorises JDs and approves KPI deviations for the plant"},
 ]
 
 # password_hash stays NULL: authentication is not implemented yet.
@@ -134,6 +136,10 @@ USERS = [
     {"username": "demo.production.head.a", "email": "demo.prod.a@example.com", "employee": "DEMO0004"},
     {"username": "demo.budget", "email": "demo.budget@example.com", "employee": "DEMO0011"},
     {"username": "demo.employee", "email": "demo.employee@example.com", "employee": "DEMO0005"},
+    # Approver accounts for Stage J (not linked to employee records, so the
+    # synthetic headcounts stay unchanged).
+    {"username": "demo.hrhead.a", "email": "demo.hrhead.a@example.com", "employee": None},
+    {"username": "demo.planthead.a", "email": "demo.planthead.a@example.com", "employee": None},
 ]
 
 # (username, role code, [(scope type, plant code | None, department code | None)])
@@ -149,6 +155,51 @@ USER_ROLES = [
     ("demo.production.head.a", "EMPLOYEE", []),
     ("demo.budget", "BUDGET_USER", [(ScopeType.GLOBAL, None, None)]),
     ("demo.employee", "EMPLOYEE", []),
+    ("demo.hrhead.a", "HR_HEAD", [(ScopeType.PLANT, "PLT-A", None)]),
+    ("demo.planthead.a", "PLANT_HEAD", [(ScopeType.PLANT, "PLT-A", None)]),
+]
+
+# Achievement matrices from 'PMS Prerequisites.xlsx', Sheet1 (verified against
+# Excel's cached results; see docs/business-requirements/stage-j-findings.md).
+# Seeded codes use letters so they never collide with codes generated in the app.
+SCORING_POLICIES = [
+    {"code": "POL-A", "name": "Higher is better (standard)", "direction": KpiDirection.HIGHER_IS_BETTER,
+     "bands": [(100, 5), (90, 4), (80, 3), (70, 2), (50, 1)], "fallback_score": 0,
+     "description": "Achievement > 100 % scores 5, > 90 % 4, > 80 % 3, > 70 % 2, > 50 % 1, otherwise 0 "
+                    "(workbook matrix A)."},
+    {"code": "POL-E", "name": "Higher is better (productivity)", "direction": KpiDirection.HIGHER_IS_BETTER,
+     "bands": [(95, 5), (90, 4), (80, 3), (70, 2)], "fallback_score": 1,
+     "description": "Achievement > 95 % scores 5, > 90 % 4, > 80 % 3, > 70 % 2, otherwise 1 (workbook matrix E)."},
+    {"code": "POL-B", "name": "Lower is better (standard)", "direction": KpiDirection.LOWER_IS_BETTER,
+     "bands": [(100, 5), (110, 4), (120, 3), (150, 2)], "fallback_score": 1,
+     "description": "Actual/target < 100 % scores 5, < 110 % 4, < 120 % 3, < 150 % 2, otherwise 1 "
+                    "(workbook matrix B)."},
+    {"code": "POL-Z", "name": "Zero tolerance", "direction": KpiDirection.ZERO_TOLERANCE,
+     "bands": [], "fallback_score": 0, "met_score": 5, "breached_score": 0,
+     "description": "No occurrences scores 5; any occurrence scores 0. Intended rule: the workbook formula "
+                    "is inverted (finding D1, to be confirmed)."},
+]
+
+# Synthetic KPI library. Applicability: (plant code | None, department code | None).
+KPI_LIBRARY = [
+    {"code": "KPI-D01", "name": "Profit vs plan", "unit": "Rs lakh", "policy": "POL-A",
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, None)]},
+    {"code": "KPI-D02", "name": "Dispatch volume", "unit": "Tons", "policy": "POL-A",
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")]},
+    {"code": "KPI-D03", "name": "Semi-finished goods inventory days", "unit": "Days", "policy": "POL-B",
+     "direction": KpiDirection.LOWER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")]},
+    {"code": "KPI-D04", "name": "Customer quality claims and complaints", "unit": "Count", "policy": "POL-Z",
+     "direction": KpiDirection.ZERO_TOLERANCE, "data_source": "MIS", "applicability": [(None, "QA")]},
+    {"code": "KPI-D05", "name": "On-time delivery", "unit": "%", "policy": "POL-A",
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, None)]},
+    {"code": "KPI-D06", "name": "Productivity", "unit": "Tons per person-day", "policy": "POL-E",
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")]},
+    {"code": "KPI-D07", "name": "Internal rejection rate", "unit": "%", "policy": "POL-B",
+     "direction": KpiDirection.LOWER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "QA")]},
+    {"code": "KPI-D08", "name": "First-pass yield", "unit": "%", "policy": "POL-E",
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [("PLT-A", "QA")]},
+    {"code": "KPI-D09", "name": "Planned maintenance compliance", "unit": "%", "policy": "POL-A",
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "MAINT")]},
 ]
 
 # Dates are configuration. April-March is only this demo's example.

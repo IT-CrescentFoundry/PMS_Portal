@@ -131,8 +131,28 @@ plus the **scope rows** on each role grant, which say where.
 
 | Role | Capability |
 |---|---|
-| ADMIN, CHRO, HR, DEPT_HEAD, BUDGET_USER | `org:read`: plants, departments, employees, headcount, **within their scopes** |
-| EMPLOYEE | `self:read`: their own employee record only |
+| ADMIN, CHRO, HR_HEAD, HR, PLANT_HEAD, DEPT_HEAD, BUDGET_USER | `org:read`: plants, departments, employees, headcount, JDs, KPI library and KPI sheets, **within their scopes** |
+| EMPLOYEE | `self:read`: their own employee record and their own KPI sheets only |
+
+JD and KPI management (Stage J) adds these capabilities; each uses the
+scopes of the role grants that carry it:
+
+| Capability | Roles | Allows |
+|---|---|---|
+| `jd:write` | ADMIN, HR_HEAD, HR, DEPT_HEAD | create and edit draft JDs, propose (the HOD step), start a revision |
+| `jd:authorise` | PLANT_HEAD | authorise a proposed JD, or return it to draft |
+| `jd:approve` | CHRO | approve an authorised JD, or return it to draft |
+| `kpi:write` | ADMIN, HR_HEAD, HR, DEPT_HEAD | KPI library, quarterly KPI sheets, Excel upload, deviation requests |
+| `quarter:start` | ADMIN, HR_HEAD, CHRO | start quarterly scoring (locks the quarter's sheets); needs **GLOBAL** scope |
+| `deviation:approve_hr` | HR_HEAD, CHRO | the HR Head approval of a deviation |
+| `deviation:approve_plant` | PLANT_HEAD | the Plant Head approval of a deviation |
+
+Separation of duties is enforced by the API and, for deviations, also by
+database CHECK constraints: the three JD signatories must be different
+people; a deviation's two approvers must be different people and neither
+may be the requester. "Available budget for the department" on a JD is
+filled by HR roles (HR, HR_HEAD, CHRO, ADMIN) only. Company-wide KPIs and
+scoring policies need GLOBAL `kpi:write`.
 
 Scopes (`user_role_scopes`):
 
@@ -176,8 +196,11 @@ Rules:
 | 403 | Signed in, but no role grants the capability | `{"detail": "You do not have access to organizational data."}` |
 | 403 | Write refused by CSRF protection | `{"detail": "Cross-site request blocked."}` or `{"detail": "CSRF token missing or invalid."}` |
 | 429 | Too many failed sign-ins (`Retry-After` header) | `{"detail": "Too many sign-in attempts. Please wait and try again."}` |
+| 403 | The record is visible but this action is not yours (wrong role, scope, or separation of duties) | `{"detail": "The requester cannot approve their own deviation."}` |
 | 404 | Record does not exist **or** is outside your access (indistinguishable by design) | `{"detail": "Plant 7 not found"}` |
+| 409 | Not allowed in the record's current state (e.g. editing a published sheet, any change after scoring started, duplicate role title) | `{"detail": "Only a draft sheet can be edited; reopen it first."}` |
 | 422 | Invalid request body or query parameter | FastAPI validation detail |
+| 422 | Business rules not met (weightage total, applicability, upload rows) | `{"detail": "Please correct the problems listed.", "issues": [{"message", "field", "row"}]}`; `row` is the spreadsheet row for uploads |
 
 ## Endpoints
 
@@ -196,6 +219,56 @@ Rules:
 | GET | `/api/employees` | `org:read` | `plant_id`, `department_id`, `primary_only`, `include_inactive`, `search` (code or name contains, ≤ 100 chars), `as_of`, `limit` (1–200), `offset` |
 | GET | `/api/employees/{id}` | `org:read` or own record | `as_of` |
 | GET | `/api/reports/headcount` | `org:read` | `plant_id`, `department_id`, `as_of` |
+| GET | `/api/designations` | `org:read` | active job titles (company-wide master) |
+
+### Job descriptions (Stage J)
+
+One JD per unique role (department + plant, or all plants, + title); several
+roles may share a designation. Versions: DRAFT → PROPOSED → AUTHORISED →
+APPROVED; the previous approved version becomes SUPERSEDED.
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| GET | `/api/jds` | `org:read` | `department_id`, `plant_id`, `search`, `include_inactive` |
+| POST | `/api/jds` | `jd:write` | creates the JD with a DRAFT version 1; 409 for a duplicate role title |
+| GET | `/api/jds/{id}` | `org:read` | with all versions |
+| GET, PUT | `/api/jds/{id}/versions/{version_id}` | `org:read` / `jd:write` | PUT only while DRAFT; every current-format field |
+| POST | `/api/jds/{id}/versions/{version_id}/propose` | `jd:write` | HOD step |
+| POST | `…/authorise` | `jd:authorise` | Plant Head step; not the proposer |
+| POST | `…/approve` | `jd:approve` | COO/CHRO step; not an earlier signatory |
+| POST | `…/return` | reviewer of the current step | `{"reason"}`; back to DRAFT |
+| POST | `/api/jds/{id}/revisions` | `jd:write` | new DRAFT from the approved version |
+
+### KPI management (Stage J)
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| GET | `/api/kpi/policies` | `org:read` | scoring policies (achievement bands → 0–5) |
+| POST, PUT | `/api/kpi/policies[/{id}]` | GLOBAL `kpi:write` | direction is fixed after creation |
+| POST | `/api/kpi/policies/{id}/preview` | `org:read` | `{"achievement_percent"}` or, for zero tolerance, `{"actual"}` → `{"score"}` |
+| GET | `/api/kpi/library` | `org:read` | `plant_id` + `department_id` = KPIs usable there; `search`, `include_inactive` |
+| POST, PUT | `/api/kpi/library[/{id}]` | `kpi:write` | applicability must lie within the writer's scope; 409 for a duplicate name |
+| GET | `/api/kpi/quarters` | `org:read` | status DRAFT = KPI setup open; OPEN = scoring started |
+| POST | `/api/kpi/quarters/{id}/start-scoring` | GLOBAL `quarter:start` | locks every PUBLISHED sheet of the quarter; DRAFT sheets stay unscorable |
+| GET | `/api/kpi/sheets` | `org:read` | `quarter_id` (required), `plant_id`, `department_id`, `search`: one row per assignment active in the quarter, with its sheet if any |
+| POST | `/api/kpi/sheets` | `kpi:write` | `{"assignment_id", "quarter_id"}`; one sheet per assignment per quarter |
+| GET | `/api/kpi/sheets/{id}` | `org:read` or own sheet | |
+| PUT | `/api/kpi/sheets/{id}` | `kpi:write` | DRAFT only, quarter not started; weightages as text with ≤ 2 decimals |
+| POST | `/api/kpi/sheets/{id}/publish` | `kpi:write` | weightages must total exactly 100.00; freezes each item's scoring policy |
+| POST | `/api/kpi/sheets/{id}/reopen` | `kpi:write` | `{"reason"}`; before scoring starts only |
+| POST | `/api/kpi/sheets/{id}/copy` | `kpi:write` | `{"target_quarter_id"}` → new DRAFT sheet |
+| GET | `/api/kpi/uploads/template` | `org:read` | .xlsx with the KPIs and policies visible to the caller |
+| POST | `/api/kpi/uploads/preview` | `kpi:write` | multipart `quarter_id` + `file` (.xlsx ≤ 1 MB, ≤ 1000 rows); validates, saves nothing |
+| POST | `/api/kpi/uploads/confirm` | `kpi:write` | same form; re-validates and saves every sheet as DRAFT in one transaction, or nothing |
+| GET | `/api/kpi/deviations` | `org:read` | `status` |
+| POST | `/api/kpi/deviations` | `kpi:write` | `{"sheet_id", "reason" (≥ 10 chars), "items"}`; only after scoring started; one pending per sheet |
+| GET | `/api/kpi/deviations/{id}` | `org:read` | original and proposed items |
+| POST | `/api/kpi/deviations/{id}/approve` | `deviation:approve_hr` / `_plant` | `{"as": "HR_HEAD" \| "PLANT_HEAD"}`; applies when both sides have approved |
+| POST | `/api/kpi/deviations/{id}/reject` | either approver | `{"reason"}` |
+
+Every change above is written to the audit trail in the same transaction
+as the change itself (deviations record the original and revised KPIs,
+the reason, both approvers and the times).
 
 ## Local demo accounts
 
@@ -212,6 +285,8 @@ code.
 | `demo.production.head.a` | DEPT_HEAD, PLANT_DEPARTMENT (Production at Plant A) + EMPLOYEE |
 | `demo.budget` | BUDGET_USER, GLOBAL |
 | `demo.employee` | EMPLOYEE (own record only) |
+| `demo.hrhead.a` | HR_HEAD, PLANT (Plant A) |
+| `demo.planthead.a` | PLANT_HEAD, PLANT (Plant A) |
 
 ```powershell
 # from PMS_Backend, with DEMO_USER_PASSWORD set in .env

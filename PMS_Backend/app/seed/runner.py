@@ -29,6 +29,9 @@ from app.models import (
     Designation,
     Employee,
     EmployeeAssignment,
+    KpiApplicability,
+    KpiDefinition,
+    KpiScoringPolicy,
     Plant,
     PlantDepartment,
     PmsCycle,
@@ -203,15 +206,70 @@ def seed(session: Session, demo_password: str | None = None) -> Counter:
             )
 
     for c in data.CYCLES:
-        cycle = upsert(
-            session, PmsCycle, {"code": c["code"]}, _without(c, "code", "quarters"), stats
-        )
+        # Statuses are workflow state (e.g. "scoring started" locks a quarter):
+        # set them only when the record is first created, never on reruns.
+        existing_cycle = session.scalars(select(PmsCycle).where(PmsCycle.code == c["code"])).one_or_none()
+        cycle_values = _without(c, "code", "quarters")
+        if existing_cycle is not None:
+            cycle_values.pop("status")
+        cycle = upsert(session, PmsCycle, {"code": c["code"]}, cycle_values, stats)
         for number, name, start, end, status in c["quarters"]:
+            exists = session.scalar(select(PmsCycleQuarter.id).where(
+                PmsCycleQuarter.cycle_id == cycle.id, PmsCycleQuarter.quarter_number == number))
+            values = {"name": name, "start_date": start, "end_date": end}
+            if exists is None:
+                values["status"] = status
             upsert(
                 session,
                 PmsCycleQuarter,
                 {"cycle_id": cycle.id, "quarter_number": number},
-                {"name": name, "start_date": start, "end_date": end, "status": status},
+                values,
+                stats,
+            )
+
+    policies = {}
+    for p in data.SCORING_POLICIES:
+        policies[p["code"]] = upsert(
+            session,
+            KpiScoringPolicy,
+            {"code": p["code"]},
+            {
+                "name": p["name"],
+                "description": p["description"],
+                "direction": p["direction"],
+                "bands": [{"threshold": t, "score": s} for t, s in p["bands"]],
+                "fallback_score": p["fallback_score"],
+                "met_score": p.get("met_score"),
+                "breached_score": p.get("breached_score"),
+                "is_active": True,
+            },
+            stats,
+        )
+    for k in data.KPI_LIBRARY:
+        kpi = upsert(
+            session,
+            KpiDefinition,
+            {"code": k["code"]},
+            {
+                "name": k["name"],
+                "unit": k["unit"],
+                "direction": k["direction"],
+                "default_scoring_policy_id": policies[k["policy"]].id,
+                "data_source": k["data_source"],
+                "is_active": True,
+            },
+            stats,
+        )
+        for plant_code, dept_code in k["applicability"]:
+            upsert(
+                session,
+                KpiApplicability,
+                {
+                    "kpi_definition_id": kpi.id,
+                    "plant_id": plants[plant_code].id if plant_code else None,
+                    "department_id": departments[dept_code].id if dept_code else None,
+                },
+                {},
                 stats,
             )
 
