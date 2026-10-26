@@ -290,6 +290,145 @@ scoring-period workflow, normalisation, increments, CR and budgets. A
 `preview` endpoint evaluates a scoring policy for a given achievement %; it
 exists to check policies against the workbook examples.
 
+## Configurable matrices and monthly scoring (Stage K)
+
+Decisions confirmed by the business (2026-10-15):
+
+- Scoring logic is configured per KPI or scoring policy. There is no
+  universal direction, and a direction is never inferred from a KPI title.
+- KPI scoring, KRA performance, compa-ratio (CR) impact and increment
+  matrices are **configuration, not code**. HR Head users author them; the
+  **CHRO approves** a version before it can become active; every change is a
+  new version.
+- Published KPI sheets keep the exact matrix version that governed them, and
+  published scores never change silently.
+- The manager's final score is calculated from KPI scores and weightages. A
+  manual override is a separate deviation: reason, HR Head (or CHRO) and
+  Plant Head approval (two different people, neither the requester), audit.
+- A zero-tolerance KPI may score 5 for no incidents and 0 otherwise when that
+  is its approved rule; a matrix may return 0 although ratings are 1–5.
+- Age band and gender stay outside active data collection until HR/legal
+  confirm a lawful need, and never influence scoring.
+- Company-wide quarter locking stays; it needs a global role.
+
+### Concepts
+
+- A **matrix type** (KPI scoring, KRA performance, CR impact, increment) is
+  declared in code (`app/services/matrix_types.py`): its standard input
+  fields, fixed output fields, allowed data types and sources, and limits.
+  Types are validated against this registry, so adding a type needs no
+  schema change. Adding one still needs a code review (see
+  [matrix-framework.md](matrix-framework.md)).
+- A **matrix** is one named configuration lineage, e.g. "Higher is better
+  (standard)". Its **versions** hold the content as a declarative **decision
+  table**:
+  - the input and output **fields** it uses (key, label, data type, unit,
+    range, allowed values, how the value is obtained);
+  - **rules**: a unique priority, conditions per input field, and output
+    values;
+  - what happens **when no rule matches** (an explicit default output, or
+    stop with an error);
+  - **test cases** (inputs and expected outputs) that must pass before
+    submission.
+
+  Each version stores its own field definitions, so it stays interpretable
+  even after the type gains fields.
+- **Rules never overlap.** For any input, at most one rule may match.
+  Overlapping rules, empty or unreachable ranges, duplicate priorities,
+  malformed conditions, non-finite numbers and unsupported types or
+  operators are validation errors. Gaps are reported. Range bounds state
+  explicitly whether they include the boundary ("more than 100" vs "at least
+  100"), which keeps the workbook's strict comparisons (exactly 100 % scores
+  4, not 5).
+- No expression language: input values come from an **allow-listed set of
+  derivations** (KPI actual, target, actual ÷ target × 100, actual − target,
+  an imported column). Nothing in a matrix, upload or spreadsheet is ever
+  executed as code; uploaded cells containing formulas are refused.
+
+### Tables (migration in this stage, additive only)
+
+| Table / change | Purpose | Key rules |
+|---|---|---|
+| `matrices` | One configuration lineage: code, **type** (registry code), name, description, type-specific attributes (e.g. the KPI direction) | `code` unique; unique (`matrix_type`, `name`) |
+| `matrix_versions` | Versioned content: decision-table definition (JSON) and its SHA-256, schema version, effective dates, change summary, source (portal, upload with file name and hash, or seed), template version, and the trail: created, submitted, approved/rejected (with note or reason), published, superseded | unique (`matrix_id`, `version_no`). At most **one open** (DRAFT or SUBMITTED) version per matrix (generated-column unique key). CHECK: the approver is not the submitter. Content changes only in DRAFT. |
+| `matrix_version_scopes` | Where a version applies: company-wide, a department at all plants, a plant, or one unit | Same pairing rules and composite FK as `kpi_applicabilities` |
+| `kpi_scoring_policies.matrix_id` | Each scoring policy (the handle KPIs and sheet items already reference) is backed by one KPI-scoring matrix | Nullable, unique. A policy without a matrix (Stage J "legacy" bands) cannot be used for new publications. |
+| `kpi_definitions` + `aggregation`, `reporting_frequency`, `measurement_method` | How a KPI is measured: monthly or quarterly reporting, and how monthly actuals combine into the quarter (sum, average, last, min, max) | Nullable. Publishing a sheet requires them to be set. |
+| `kpi_definitions.direction`, `kpi_scoring_policies.direction` | ENUM gains `TARGET_RANGE`, `CATEGORICAL`, `COMPOSITE` | Existing values unchanged |
+| `kpi_sheet_items` + `matrix_version_id`, `measurement_snapshot` | The **exact** matrix version and measurement semantics frozen at publication (or when a deviation is applied) | Set only for Stage K publications; Stage J items keep their `scoring_snapshot` |
+| `kpi_data_imports` | One confirmed monthly import: quarter, month, file name, SHA-256, size, format, column mapping, row counts, importer | The file itself is never stored |
+| `kpi_monthly_values` | Imported source value per sheet, KPI and month: actual, extra input values (JSON), source import and row | unique (`sheet_id`, `kpi_definition_id`, `period_month`) |
+| `kpi_sheet_results` | Calculated result per sheet: status CALCULATED → REVIEWED → PUBLISHED, completeness, exact weighted score, final score (2 dp), published score, per-KPI explanation, hash of the inputs used | One per sheet. Immutable once PUBLISHED. |
+| `kpi_score_overrides` | A manual final-score override as a deviation: original and proposed score, reason, HR-side and plant-side approvals, rejection, application, voiding | One PENDING per result; CHECKs: distinct approvers, approver ≠ requester |
+
+Migration effects: new tables, new nullable columns and enum values only.
+No row is changed, no column or table is dropped, and Stage J data
+(policies, frozen snapshots, sheets, deviations) remains valid. `downgrade()`
+drops the new tables and columns; it is never run without approval.
+
+### Workflow
+
+- **Matrix versions.**
+  1. HR Head (in scope; company-wide needs GLOBAL) saves a DRAFT, validates it
+     and previews representative inputs.
+  2. *Submit* requires zero validation errors, passing test cases, an
+     effective date and applicability.
+  3. The CHRO *approves* (re-validated) or *rejects* with a reason. The
+     approver must differ from the submitter and the author.
+  4. An approved version is *published* by the HR Head or the CHRO.
+     - Earlier published versions of the same matrix end the day before it
+       takes effect, or become SUPERSEDED if they had not started yet.
+     - For types chosen by applicability (KRA, CR, increment), another
+       matrix of the same type may not overlap in dates and scope.
+  5. A *revision* copies the latest version into a new DRAFT. Rejected
+     versions stay in the history.
+  6. A submitted version can be withdrawn to DRAFT by its author.
+- **KPI sheets.**
+  - Publishing (or applying a deviation) resolves, for every item, the
+    PUBLISHED version of the item's scoring policy. It must be effective on
+    the quarter's start date and its applicability must cover the
+    assignment's unit.
+  - That version id and the KPI's measurement semantics are frozen on the
+    item.
+  - A missing or ambiguous version, an undefined measurement, or a matrix
+    needing a target that is missing blocks publication. Nothing falls back
+    to a default.
+- **Monthly data.**
+  1. Choose quarter and month, upload CSV or XLSX, and map columns to the
+     documented contract. Only published or locked sheets accept data, and
+     only for months that have started.
+  2. *Preview* writes nothing.
+  3. *Confirm* re-validates and saves everything or nothing.
+  4. Re-imported identical values are unchanged. Different values are
+     replaced only with explicit confirmation. A file with the same hash is
+     flagged.
+- **Results.**
+  - *Calculate* (KPI writers in scope) aggregates monthly values per the
+    frozen measurement, derives the matrix inputs, evaluates the frozen
+    version and adds weighted contributions (score × weightage ÷ 100, exact
+    decimals). The final score is rounded half-up to 2 decimals.
+  - Results with missing months are marked incomplete.
+  - *Review* is done by the manager (KPI writers). *Publish* (HR Head or
+    CHRO, in scope) needs a complete, current, locked sheet, then freezes
+    the result.
+  - New data, a deviation or a matrix change makes an unpublished result
+    stale until recalculated. Data, deviations and recalculation are refused
+    once results are published.
+- **Overrides** follow the deviation rules. Recalculation voids a pending or
+  applied override, which must then be requested again.
+
+### Permissions (added to the role map)
+
+| Capability | Roles | Scope |
+|---|---|---|
+| `matrix:read` (KPI scoring, KRA) | ADMIN, CHRO, HR_HEAD, HR, PLANT_HEAD, DEPT_HEAD, BUDGET_USER | scoped by applicability |
+| `matrix:read_compensation` (CR, increment) | ADMIN, CHRO, HR_HEAD | scoped |
+| `matrix:write` (author, submit, withdraw, publish, upload) | HR_HEAD | scoped; company-wide needs GLOBAL |
+| `matrix:approve` (approve, reject, publish) | CHRO | scoped |
+| Monthly import, calculate, review | `kpi:write` roles | scoped to the sheet's unit |
+| `score:publish` | HR_HEAD, CHRO | scoped |
+| Override approvals | `deviation:approve_hr`, `deviation:approve_plant` | scoped |
+
 ## Deferred, by design
 
 - **Normalization policy** (configurable 20–60–20 bands, eligible population,

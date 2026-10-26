@@ -14,6 +14,10 @@ export const PERMISSION_KPI_WRITE = 'kpi:write'
 export const PERMISSION_QUARTER_START = 'quarter:start'
 export const PERMISSION_DEVIATION_HR = 'deviation:approve_hr'
 export const PERMISSION_DEVIATION_PLANT = 'deviation:approve_plant'
+export const PERMISSION_MATRIX_READ = 'matrix:read'
+export const PERMISSION_MATRIX_WRITE = 'matrix:write'
+export const PERMISSION_MATRIX_APPROVE = 'matrix:approve'
+export const PERMISSION_SCORE_PUBLISH = 'score:publish'
 
 /** Roles that may fill HR-only JD fields (available budget). Mirrors the API. */
 const HR_ROLE_CODES = new Set(['HR', 'HR_HEAD', 'CHRO', 'ADMIN'])
@@ -62,6 +66,26 @@ export function canApproveDeviationAsHR(user: CurrentUser): boolean {
 
 export function canApproveDeviationAsPlant(user: CurrentUser): boolean {
         return has(user, PERMISSION_DEVIATION_PLANT)
+}
+
+/** May view configurable matrices (compensation types need more; the API decides). */
+export function canReadMatrices(user: CurrentUser): boolean {
+        return has(user, PERMISSION_MATRIX_READ)
+}
+
+/** HR Head: author matrix versions in the portal or by Excel upload. */
+export function canWriteMatrices(user: CurrentUser): boolean {
+        return has(user, PERMISSION_MATRIX_WRITE)
+}
+
+/** CHRO: approve or reject submitted matrix versions. */
+export function canApproveMatrices(user: CurrentUser): boolean {
+        return has(user, PERMISSION_MATRIX_APPROVE)
+}
+
+/** HR Head / CHRO: publish reviewed quarterly scores (final). */
+export function canPublishScores(user: CurrentUser): boolean {
+        return has(user, PERMISSION_SCORE_PUBLISH)
 }
 
 /** May open their own employee record. */

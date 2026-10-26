@@ -76,19 +76,29 @@ def test_inconsistent_policies_are_refused(direction, bands, fallback, met, brea
 
 
 def test_policies_api_and_preview(as_role, kpi_env):
-    _, admin = as_role("tst.pol.admin", [("ADMIN", [(ScopeType.GLOBAL, None, None)])])
-    created = admin.post("/api/kpi/policies", json={
+    # Since Stage K a policy is a versioned matrix authored by an HR Head.
+    _, hr_head = as_role("tst.pol.hrh", [("HR_HEAD", [(ScopeType.GLOBAL, None, None)])])
+    created = hr_head.post("/api/kpi/policies", json={
         "name": "Test custom higher", "direction": "HIGHER_IS_BETTER",
         "bands": [{"threshold": 95, "score": 5}, {"threshold": 80, "score": 3}], "fallback_score": 1})
     assert created.status_code == 201, created.text
     policy = created.json()
     assert policy["code"].startswith("POL-")
-    preview = admin.post(f"/api/kpi/policies/{policy['id']}/preview", json={"achievement_percent": 96})
-    assert preview.json() == {"score": 5}
-    bad = admin.post("/api/kpi/policies", json={
+    # Version 1 is a draft: not in force until the CHRO approves and it is published.
+    assert policy["matrix"]["in_force"] is None
+    assert policy["matrix"]["latest"]["status"] == "DRAFT"
+    preview = hr_head.post(f"/api/kpi/policies/{policy['id']}/preview",
+                           json={"achievement_percent": 96})
+    assert preview.json()["score"] == 5 and preview.json()["status"] == "DRAFT"
+    bad = hr_head.post("/api/kpi/policies", json={
         "name": "Bad", "direction": "HIGHER_IS_BETTER", "bands": [{"threshold": 90, "score": 2},
                                                                   {"threshold": 95, "score": 1}]})
     assert bad.status_code == 422 and bad.json()["issues"]
+    # Admins no longer author scoring rules.
+    _, admin = as_role("tst.pol.admin", [("ADMIN", [(ScopeType.GLOBAL, None, None)])])
+    assert admin.post("/api/kpi/policies", json={
+        "name": "Admin policy", "direction": "LOWER_IS_BETTER",
+        "bands": [{"threshold": 100, "score": 5}], "fallback_score": 1}).status_code == 403
 
 
 def test_policies_are_company_wide_and_need_global_scope(as_role, kpi_env):

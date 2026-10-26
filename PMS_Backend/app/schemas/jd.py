@@ -42,7 +42,7 @@ class JDContent(BaseModel):
     proposed_ctc: str | None = Text100
     available_budget: str | None = Text100  # filled by HR only (enforced by the API)
     min_qualification: str | None = Field(default=None, max_length=255)
-    age_band_gender: str | None = Text100
+    age_band_gender: str | None = Text100  # not collected: any value is refused (services.jd)
     work_experience: str | None = Field(default=None, max_length=255)
     languages: str | None = Field(default=None, max_length=255)
     # Job relationship

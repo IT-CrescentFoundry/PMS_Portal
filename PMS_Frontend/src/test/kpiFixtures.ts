@@ -1,4 +1,4 @@
-/** Synthetic JD/KPI test data shaped exactly like the API responses (Stage J). */
+/** Synthetic JD/KPI test data shaped exactly like the API responses (Stages J and K). */
 import type {
         AssignmentBrief,
         CurrentUser,
@@ -92,6 +92,7 @@ export const policies: ScoringPolicy[] = [
                 met_score: null,
                 breached_score: null,
                 is_active: true,
+                matrix: null,
         },
         {
                 ...policyRefs.lower,
@@ -102,6 +103,7 @@ export const policies: ScoringPolicy[] = [
                 met_score: null,
                 breached_score: null,
                 is_active: true,
+                matrix: null,
         },
         {
                 ...policyRefs.zero,
@@ -112,6 +114,7 @@ export const policies: ScoringPolicy[] = [
                 met_score: 5,
                 breached_score: 0,
                 is_active: true,
+                matrix: null,
         },
 ]
 
@@ -132,6 +135,9 @@ function kpi(
                 data_source: null,
                 is_active: true,
                 applicability: [{ plant: null, department: null, label: 'Company-wide' }],
+                reporting_frequency: 'MONTHLY',
+                aggregation: direction === 'ZERO_TOLERANCE' ? 'SUM' : 'AVERAGE',
+                measurement_method: null,
         }
 }
 
@@ -181,6 +187,8 @@ export const twoItems: KpiSheet['items'] = [
                 unit: '%',
                 scoring_policy: policyRefs.higher,
                 frozen: true,
+                matrix_version: { id: 301, matrix_id: 30, matrix_code: 'KSM-0030', version_no: 2 },
+                measurement: { reporting_frequency: 'MONTHLY', aggregation: 'AVERAGE' },
         },
         {
                 id: 2,
@@ -196,6 +204,8 @@ export const twoItems: KpiSheet['items'] = [
                 unit: 'days',
                 scoring_policy: policyRefs.lower,
                 frozen: true,
+                matrix_version: null,
+                measurement: null,
         },
 ]
 

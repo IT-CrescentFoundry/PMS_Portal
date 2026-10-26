@@ -2,7 +2,17 @@
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Employee, EmployeeAssignment, User
+from app.models import (
+    Employee,
+    EmployeeAssignment,
+    KpiScoringPolicy,
+    KpiSheet,
+    KpiSheetStatus,
+    MatrixVersion,
+    MatrixVersionStatus,
+    PmsCycleQuarter,
+    User,
+)
 from app.seed.runner import SeedError, demo_password_from_env, seed
 
 DEMO_PASSWORD = "synthetic-demo-password"  # test-only value
@@ -10,11 +20,12 @@ DEMO_PASSWORD = "synthetic-demo-password"  # test-only value
 
 def test_seed_hashes_demo_password_and_stays_idempotent(db):
     first = seed(db, DEMO_PASSWORD)
-    assert first[("users (password)", "updated")] == 9  # 7 original + HR Head + Plant Head
+    # 7 original + Plant A HR Head + Plant Head (Stage J) + company-wide HR Head (Stage K)
+    assert first[("users (password)", "updated")] == 10
     second = seed(db, DEMO_PASSWORD)
-    assert second[("users (password)", "unchanged")] == 9
+    assert second[("users (password)", "unchanged")] == 10
     hashes = db.scalars(select(User.password_hash).where(User.username.like("demo.%"))).all()
-    assert len(hashes) == 9
+    assert len(hashes) == 10
     assert all(h.startswith("$argon2id$") and DEMO_PASSWORD not in h for h in hashes)
 
 
@@ -53,6 +64,29 @@ def test_seed_is_idempotent(db):
         select(func.count()).select_from(Employee).where(Employee.employee_code.like("DEMO%"))
     )
     assert demo_employees == 15
+
+
+def test_seeded_policies_are_backed_by_published_matrices(db):
+    seed(db)
+    policies = db.scalars(select(KpiScoringPolicy).where(KpiScoringPolicy.code.like("POL-_"))).all()
+    assert {p.code for p in policies} == {"POL-A", "POL-B", "POL-E", "POL-Z"}
+    for policy in policies:
+        versions = db.scalars(select(MatrixVersion).where(
+            MatrixVersion.matrix_id == policy.matrix_id)).all()
+        assert [(v.version_no, v.status) for v in versions] == [(1, MatrixVersionStatus.PUBLISHED)]
+        # The synthetic approval trail still respects separation of duties.
+        assert versions[0].approved_by_user_id != versions[0].submitted_by_user_id
+        assert "not an approved company policy" in versions[0].approval_note
+
+
+def test_seeded_q3_sheets_are_locked_with_frozen_versions(db):
+    seed(db)
+    sheets = db.scalars(select(KpiSheet).join(KpiSheet.quarter)
+                        .where(PmsCycleQuarter.name.like("Q3%"))).all()
+    assert len(sheets) == 2 and {s.status for s in sheets} == {KpiSheetStatus.LOCKED}
+    for sheet in sheets:
+        assert sum(i.weightage for i in sheet.items) == 100
+        assert all(i.matrix_version_id and i.measurement_snapshot["aggregation"] for i in sheet.items)
 
 
 def test_seed_multi_plant_employee_has_one_identity(db):

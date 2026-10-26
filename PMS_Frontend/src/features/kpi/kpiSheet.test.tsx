@@ -81,6 +81,8 @@ describe('quarterly KPI sheet', () => {
                                         name: 'Test zero tolerance',
                                 },
                                 frozen: false,
+                                matrix_version: null,
+                                measurement: null,
                         },
                         { ...twoItems[1], weightage: 33.34 },
                 ]

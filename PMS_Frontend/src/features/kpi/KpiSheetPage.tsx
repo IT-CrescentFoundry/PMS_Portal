@@ -118,6 +118,9 @@ function kpiOptions(usable: Kpi[], sheet: KpiSheet): Kpi[] {
                         data_source: null,
                         is_active: false,
                         applicability: [],
+                        reporting_frequency: item.measurement?.reporting_frequency ?? null,
+                        aggregation: item.measurement?.aggregation ?? null,
+                        measurement_method: item.measurement?.measurement_method ?? null,
                 }))
         return [...usable, ...extra]
 }
@@ -528,6 +531,19 @@ function ItemsTable({ sheet }: { sheet: KpiSheet }) {
                                                                         />
                                                                         Frozen
                                                                 </Badge>
+                                                        )}
+                                                        {item.matrix_version && (
+                                                                <p className="text-xs text-slate-600">
+                                                                        {
+                                                                                item.matrix_version
+                                                                                        .matrix_code
+                                                                        }{' '}
+                                                                        version{' '}
+                                                                        {
+                                                                                item.matrix_version
+                                                                                        .version_no
+                                                                        }
+                                                                </p>
                                                         )}
                                                 </Td>
                                                 <Td className="hidden lg:table-cell">

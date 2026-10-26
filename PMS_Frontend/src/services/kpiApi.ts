@@ -5,6 +5,7 @@ import type {
         Kpi,
         KpiSheet,
         KpiWrite,
+        PolicyPreview,
         Quarter,
         ScoringPolicy,
         SheetItemInput,
@@ -22,12 +23,13 @@ export function listPolicies(signal?: AbortSignal): Promise<ScoringPolicy[]> {
         return apiRequest<ScoringPolicy[]>('/api/kpi/policies', { signal })
 }
 
-/** Score for an achievement % (or, for zero tolerance, an actual value). */
+/** Score for an achievement % (or, for zero tolerance, an actual value), and the
+ *  matrix version that gave it. */
 export function previewPolicyScore(
         policyId: number,
         input: { achievement_percent?: number; actual?: number },
-): Promise<{ score: number }> {
-        return apiRequest<{ score: number }>(`/api/kpi/policies/${policyId}/preview`, {
+): Promise<PolicyPreview> {
+        return apiRequest<PolicyPreview>(`/api/kpi/policies/${policyId}/preview`, {
                 method: 'POST',
                 body: input,
         })

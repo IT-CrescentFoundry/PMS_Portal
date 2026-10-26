@@ -29,7 +29,6 @@ export interface JDForm {
         proposed_ctc: string
         available_budget: string
         min_qualification: string
-        age_band_gender: string
         work_experience: string
         languages: string
         reports_to: string
@@ -59,7 +58,6 @@ export function emptyForm(): JDForm {
                 proposed_ctc: '',
                 available_budget: '',
                 min_qualification: '',
-                age_band_gender: '',
                 work_experience: '',
                 languages: '',
                 reports_to: '',
@@ -98,7 +96,6 @@ export function formFromVersion(
                 proposed_ctc: text(version.proposed_ctc),
                 available_budget: text(version.available_budget),
                 min_qualification: text(version.min_qualification),
-                age_band_gender: text(version.age_band_gender),
                 work_experience: text(version.work_experience),
                 languages: text(version.languages),
                 reports_to: text(version.reports_to),
@@ -143,7 +140,9 @@ export function contentFromForm(form: JDForm): JDContent {
                 proposed_ctc: orNull(form.proposed_ctc),
                 available_budget: orNull(form.available_budget),
                 min_qualification: orNull(form.min_qualification),
-                age_band_gender: orNull(form.age_band_gender),
+                // Not collected until HR and legal confirm a lawful need; saving
+                // clears any value recorded earlier (the API refuses new values).
+                age_band_gender: null,
                 work_experience: orNull(form.work_experience),
                 languages: orNull(form.languages),
                 reports_to: orNull(form.reports_to),

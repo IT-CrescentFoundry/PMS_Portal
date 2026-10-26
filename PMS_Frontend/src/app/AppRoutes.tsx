@@ -21,9 +21,19 @@ import { KpiSheetPage } from '../features/kpi/KpiSheetPage'
 import { KpiSheetsPage } from '../features/kpi/KpiSheetsPage'
 import { KpiUploadPage } from '../features/kpi/KpiUploadPage'
 import { ScoringPoliciesPage } from '../features/kpi/ScoringPoliciesPage'
+import { MatricesPage } from '../features/matrix/MatricesPage'
+import { MatrixCreatePage } from '../features/matrix/MatrixCreatePage'
+import { MatrixDetailPage } from '../features/matrix/MatrixDetailPage'
+import { MatrixEditorPage } from '../features/matrix/MatrixEditorPage'
+import { MatrixUploadPage } from '../features/matrix/MatrixUploadPage'
+import { MatrixVersionPage } from '../features/matrix/MatrixVersionPage'
 import { PlantDetailPage } from '../features/plants/PlantDetailPage'
 import { PlantsPage } from '../features/plants/PlantsPage'
 import { HeadcountPage } from '../features/reports/HeadcountPage'
+import { MonthlyDataPage } from '../features/scores/MonthlyDataPage'
+import { OverridesPage } from '../features/scores/OverridesPage'
+import { ResultDetailPage } from '../features/scores/ResultDetailPage'
+import { ResultsPage } from '../features/scores/ResultsPage'
 
 export function AppRoutes() {
         return (
@@ -84,6 +94,34 @@ export function AppRoutes() {
                                         <Route
                                                 path="kpi/deviations/:deviationId"
                                                 element={<DeviationDetailPage />}
+                                        />
+                                        <Route path="matrices" element={<MatricesPage />} />
+                                        <Route path="matrices/new" element={<MatrixCreatePage />} />
+                                        <Route
+                                                path="matrices/upload"
+                                                element={<MatrixUploadPage />}
+                                        />
+                                        <Route
+                                                path="matrices/:matrixId"
+                                                element={<MatrixDetailPage />}
+                                        />
+                                        <Route
+                                                path="matrices/:matrixId/versions/:versionId"
+                                                element={<MatrixVersionPage />}
+                                        />
+                                        <Route
+                                                path="matrices/:matrixId/versions/:versionId/edit"
+                                                element={<MatrixEditorPage />}
+                                        />
+                                        <Route path="scores/data" element={<MonthlyDataPage />} />
+                                        <Route path="scores/results" element={<ResultsPage />} />
+                                        <Route
+                                                path="scores/results/:sheetId"
+                                                element={<ResultDetailPage />}
+                                        />
+                                        <Route
+                                                path="scores/overrides"
+                                                element={<OverridesPage />}
                                         />
                                 </Route>
                                 {/* Also reachable by employees for their own record (the API decides). */}

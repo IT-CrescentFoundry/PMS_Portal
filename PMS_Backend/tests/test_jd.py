@@ -2,7 +2,7 @@
 import pytest
 from sqlalchemy import select
 
-from app.models import AuditEvent
+from app.models import AuditEvent, JobDescriptionVersion
 from app.models.enums import ScopeType
 
 GLOBAL, PLANT, DEPARTMENT = ScopeType.GLOBAL, ScopeType.PLANT, ScopeType.DEPARTMENT
@@ -116,6 +116,28 @@ def test_three_step_sign_off_and_supersession(people, org, db):
     actions = db.scalars(select(AuditEvent.action).where(AuditEvent.entity_type == "job_description",
                                                          AuditEvent.entity_id == str(jd["id"]))).all()
     assert actions.count("jd.approve") == 2 and "jd.create" in actions and "jd.revise" in actions
+
+
+def test_age_band_and_gender_are_not_collected(people, org, db):
+    author, ph, chro = people["author"][1], people["planthead"][1], people["chro"][1]
+    refused = create(author, org, age_band_gender="Up to 35, any gender")
+    assert refused.status_code == 422
+    assert refused.json()["issues"][0]["field"] == "age_band_gender"
+
+    jd = create(author, org).json()
+    version = db.get(JobDescriptionVersion, open_version(jd))
+    version.age_band_gender = "Recorded before collection was paused"  # legacy value
+    db.flush()
+    base = f"/api/jds/{jd['id']}/versions/{version.id}"
+    assert author.post(f"{base}/propose").status_code == 422
+    assert author.put(base, json=CONTENT).json()["age_band_gender"] is None  # saving clears it
+    for client, step in ((author, "propose"), (ph, "authorise"), (chro, "approve")):
+        assert client.post(f"{base}/{step}").status_code == 200
+
+    version.age_band_gender = "Legacy approved value"
+    db.flush()
+    revision = author.post(f"/api/jds/{jd['id']}/revisions").json()
+    assert revision["age_band_gender"] is None  # never carried into a new revision
 
 
 def test_signatories_must_differ(as_role, org):

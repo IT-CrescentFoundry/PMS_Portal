@@ -39,6 +39,7 @@ os.environ["AUTH_SECRET_KEY"] = secrets.token_urlsafe(48)
 os.environ["AUTH_COOKIE_SECURE"] = "false"  # TestClient talks plain HTTP
 
 # --- Imports below this line see the test configuration --------------------
+import json  # noqa: E402
 from collections.abc import Callable, Iterator  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from datetime import date  # noqa: E402
@@ -268,13 +269,43 @@ def org(db: Session) -> Org:
 # --- Stage J (JD / KPI) fixtures ---------------------------------------------------------
 
 from app.models import (  # noqa: E402
+    KpiAggregation,
     KpiApplicability,
     KpiDefinition,
     KpiDirection,
     KpiScoringPolicy,
+    Matrix,
+    MatrixVersion,
+    MatrixVersionScope,
+    MatrixVersionSource,
+    MatrixVersionStatus,
     PmsCycle,
     PmsCycleQuarter,
+    ReportingFrequency,
 )
+from app.services import matrix_rules  # noqa: E402
+
+
+def published_matrix(db: Session, policy: KpiScoringPolicy, *, definition: dict | None = None,
+                     effective_from: date = date(2026, 4, 1)) -> MatrixVersion:
+    """Back a scoring policy with a matrix whose version 1 is PUBLISHED
+    (company-wide), as if authored, approved and published earlier."""
+    definition = definition or matrix_rules.definition_from_bands(
+        policy.direction, policy.bands, policy.fallback_score, policy.met_score,
+        policy.breached_score)
+    matrix = Matrix(code=f"T{policy.code}", matrix_type="KPI_SCORING", name=policy.name,
+                    attributes={"direction": policy.direction.value})
+    db.add(matrix)
+    db.flush()
+    version = MatrixVersion(
+        matrix_id=matrix.id, version_no=1, status=MatrixVersionStatus.PUBLISHED, schema_version=1,
+        definition=definition, definition_hash=matrix_rules.definition_hash(definition),
+        effective_from=effective_from, source=MatrixVersionSource.SEED,
+        scopes=[MatrixVersionScope(plant_id=None, department_id=None)])
+    db.add(version)
+    policy.matrix_id = matrix.id
+    db.flush()
+    return version
 
 
 @dataclass
@@ -284,7 +315,9 @@ class KpiEnv:
     Quarters TQ1 (2026-07-01..09-30) and TQ2 (2026-10-01..12-31), both DRAFT.
     KPIs: profit (company-wide, higher), claims (dept Q at all plants, zero
     tolerance), lower (dept Q, lower-is-better), yield_p1 (unit P1/Q only),
-    maint (unit P1/M only).
+    maint (unit P1/M only). All are measured monthly. Policies A, B and Z are
+    backed by matrices with a PUBLISHED version 1 in force from 2026-04-01
+    (`versions`).
     """
 
     org: Org
@@ -293,6 +326,7 @@ class KpiEnv:
     q2: PmsCycleQuarter
     policies: dict[str, KpiScoringPolicy]
     kpis: dict[str, KpiDefinition]
+    versions: dict[str, MatrixVersion]
 
     def assignment_id(self, db: Session, employee: str, unit: tuple[str, str]) -> int:
         return db.scalar(
@@ -328,26 +362,31 @@ def kpi_env(db: Session, org: Org) -> KpiEnv:
     db.flush()
     o = org
 
-    def kpi(code, name, direction, policy, scopes):
+    versions = {key: published_matrix(db, policy) for key, policy in policies.items()}
+
+    def kpi(code, name, direction, policy, scopes, aggregation):
         k = KpiDefinition(code=code, name=name, unit="%", direction=direction,
                           default_scoring_policy_id=policies[policy].id,
+                          reporting_frequency=ReportingFrequency.MONTHLY, aggregation=aggregation,
                           applicabilities=[KpiApplicability(plant_id=p, department_id=d) for p, d in scopes])
         db.add(k)
         return k
 
+    a = KpiAggregation
     kpis = {
-        "profit": kpi("TKPI-1", "Test profit", KpiDirection.HIGHER_IS_BETTER, "A", [(None, None)]),
+        "profit": kpi("TKPI-1", "Test profit", KpiDirection.HIGHER_IS_BETTER, "A", [(None, None)],
+                      a.SUM),
         "claims": kpi("TKPI-2", "Test claims", KpiDirection.ZERO_TOLERANCE, "Z",
-                      [(None, o.departments["Q"].id)]),
+                      [(None, o.departments["Q"].id)], a.SUM),
         "lower": kpi("TKPI-3", "Test inventory days", KpiDirection.LOWER_IS_BETTER, "B",
-                     [(None, o.departments["Q"].id)]),
+                     [(None, o.departments["Q"].id)], a.AVERAGE),
         "yield_p1": kpi("TKPI-4", "Test yield P1", KpiDirection.HIGHER_IS_BETTER, "A",
-                        [(o.plants["P1"].id, o.departments["Q"].id)]),
+                        [(o.plants["P1"].id, o.departments["Q"].id)], a.AVERAGE),
         "maint": kpi("TKPI-5", "Test maintenance", KpiDirection.HIGHER_IS_BETTER, "A",
-                     [(o.plants["P1"].id, o.departments["M"].id)]),
+                     [(o.plants["P1"].id, o.departments["M"].id)], a.AVERAGE),
     }
     db.flush()
-    return KpiEnv(org, cycle, q1, q2, policies, kpis)
+    return KpiEnv(org, cycle, q1, q2, policies, kpis, versions)
 
 
 @pytest.fixture
@@ -359,3 +398,122 @@ def as_role(make_user, client_for):
         return user, client_for(user)
 
     return _make
+
+
+# --- Stage K (monthly data and scoring) fixtures -----------------------------------------
+
+TODAY = date(2026, 10, 15)
+
+
+@pytest.fixture
+def fixed_today(monkeypatch) -> date:
+    """Pin "today" so month-has-started rules are deterministic."""
+    from app.services import clock
+
+    monkeypatch.setattr(clock, "today", lambda: TODAY)
+    return TODAY
+
+
+@dataclass
+class ScoringEnv:
+    """TQ1 (Jul–Sep 2026) after scoring started:
+      p1_sheet  TST001 at P1/Q, LOCKED: profit 40 % (target 100, SUM),
+                claims 20 % (zero tolerance, SUM), lower 40 % (target 10, AVERAGE)
+      p2_sheet  TST001 at P2/Q, LOCKED: profit 100 % (target 50)
+      draft     TST002 at P2/Q, never published (DRAFT)
+    Clients: head (Quality, all plants), chro, hr_head (P1), plant_head (P1).
+    """
+
+    env: KpiEnv
+    p1_sheet: int
+    p2_sheet: int
+    draft: int
+    users: dict[str, User]
+    clients: dict[str, TestClient]
+
+
+@pytest.fixture
+def scoring_env(kpi_env: KpiEnv, as_role, db: Session, fixed_today) -> ScoringEnv:
+    o = kpi_env.org
+    roles = {
+        "head": [("DEPT_HEAD", [(ScopeType.DEPARTMENT, None, o.departments["Q"])])],
+        "chro": [("CHRO", [(ScopeType.GLOBAL, None, None)])],
+        "hr_head": [("HR_HEAD", [(ScopeType.PLANT, o.plants["P1"], None)])],
+        "plant_head": [("PLANT_HEAD", [(ScopeType.PLANT, o.plants["P1"], None)])],
+    }
+    users, clients = {}, {}
+    for key, grants in roles.items():
+        users[key], clients[key] = as_role(f"tst.sc.{key}", grants)
+    head = clients["head"]
+
+    def sheet(employee: str, unit: tuple[str, str], items: list[dict], publish: bool = True) -> int:
+        created = head.post("/api/kpi/sheets", json={
+            "assignment_id": kpi_env.assignment_id(db, employee, unit),
+            "quarter_id": kpi_env.q1.id})
+        assert created.status_code == 201, created.text
+        sheet_id = created.json()["id"]
+        saved = head.put(f"/api/kpi/sheets/{sheet_id}", json={"items": items})
+        assert saved.status_code == 200, saved.text
+        if publish:
+            published = head.post(f"/api/kpi/sheets/{sheet_id}/publish")
+            assert published.status_code == 200, published.text
+        return sheet_id
+
+    k = kpi_env.kpis
+    p1 = sheet("001", ("P1", "Q"), [
+        {"kpi_definition_id": k["profit"].id, "weightage": "40", "target_value": "100"},
+        {"kpi_definition_id": k["claims"].id, "weightage": "20"},
+        {"kpi_definition_id": k["lower"].id, "weightage": "40", "target_value": "10"}])
+    p2 = sheet("001", ("P2", "Q"), [
+        {"kpi_definition_id": k["profit"].id, "weightage": "100", "target_value": "50"}])
+    draft = sheet("002", ("P2", "Q"), [
+        {"kpi_definition_id": k["profit"].id, "weightage": "100", "target_value": "50"}],
+        publish=False)
+    started = clients["chro"].post(f"/api/kpi/quarters/{kpi_env.q1.id}/start-scoring")
+    assert started.status_code == 200, started.text
+    return ScoringEnv(kpi_env, p1, p2, draft, users, clients)
+
+
+def csv_bytes(rows: list[list[object]], header: list[str] | None = None) -> bytes:
+    """A CSV file with the import contract's headings (or the given ones)."""
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(header or ["Employee Code", "Plant Code", "Department Code", "KPI", "Period",
+                               "Actual"])
+    writer.writerows(rows)
+    return buffer.getvalue().encode("utf-8")
+
+
+def quarter_rows(values: dict[str, list[object]], months=("2026-07", "2026-08", "2026-09"),
+                 plant: str = "TST-P1") -> list[list[object]]:
+    """{KPI code: [value per month]} -> CSV rows for TST001 at `plant`/Quality."""
+    rows = []
+    for code, monthly in values.items():
+        for month, value in zip(months, monthly):
+            if value is not None:
+                rows.append(["TST001", plant, "TST-Q", code, month, value])
+    return rows
+
+
+def import_data(client: TestClient, env: ScoringEnv, step: str, data: bytes, period: str,
+                name: str = "data.csv", **form) -> object:
+    return client.post(f"/api/kpi/data/{step}", data={
+        "quarter_id": str(env.env.q1.id), "period": period,
+        **{k: (json.dumps(v) if isinstance(v, dict) else str(v).lower() if isinstance(v, bool)
+               else str(v)) for k, v in form.items()}},
+        files={"file": (name, data, "text/csv" if name.endswith(".csv") else
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+
+
+def import_quarter(client: TestClient, env: ScoringEnv, values: dict[str, list[object]],
+                   months=("2026-07", "2026-08", "2026-09"), plant: str = "TST-P1") -> None:
+    """Import one file per month and confirm each."""
+    for i, month in enumerate(months):
+        rows = [r for r in quarter_rows({k: [v[i]] for k, v in values.items()}, (month,), plant)]
+        if not rows:
+            continue
+        resp = import_data(client, env, "confirm", csv_bytes(rows), month)
+        assert resp.status_code == 200, resp.text

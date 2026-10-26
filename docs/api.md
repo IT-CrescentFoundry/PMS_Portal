@@ -147,6 +147,20 @@ scopes of the role grants that carry it:
 | `deviation:approve_hr` | HR_HEAD, CHRO | the HR Head approval of a deviation |
 | `deviation:approve_plant` | PLANT_HEAD | the Plant Head approval of a deviation |
 
+Configurable matrices and scoring (Stage K) add:
+
+| Capability | Roles | Allows |
+|---|---|---|
+| `matrix:read` | ADMIN, CHRO, HR_HEAD, HR, PLANT_HEAD, DEPT_HEAD, BUDGET_USER | view KPI-scoring and KRA matrices and their versions |
+| `matrix:read_compensation` | ADMIN, CHRO, HR_HEAD | also view compa-ratio and increment matrix types |
+| `matrix:write` | HR_HEAD | create matrices, edit drafts (portal or Excel), submit, withdraw, publish; the writer's scope must cover the version's applicability (company-wide needs GLOBAL) |
+| `matrix:approve` | CHRO | approve or reject a submitted version (not its author or submitter), publish |
+| `score:publish` | HR_HEAD, CHRO | publish a reviewed quarterly score (final) |
+
+Score overrides use the deviation capabilities: `kpi:write` requests,
+`deviation:approve_hr` and `deviation:approve_plant` approve (two different
+people, neither the requester).
+
 Separation of duties is enforced by the API and, for deviations, also by
 database CHECK constraints: the three JD signatories must be different
 people; a deviation's two approvers must be different people and neither
@@ -198,7 +212,7 @@ Rules:
 | 429 | Too many failed sign-ins (`Retry-After` header) | `{"detail": "Too many sign-in attempts. Please wait and try again."}` |
 | 403 | The record is visible but this action is not yours (wrong role, scope, or separation of duties) | `{"detail": "The requester cannot approve their own deviation."}` |
 | 404 | Record does not exist **or** is outside your access (indistinguishable by design) | `{"detail": "Plant 7 not found"}` |
-| 409 | Not allowed in the record's current state (e.g. editing a published sheet, any change after scoring started, duplicate role title) | `{"detail": "Only a draft sheet can be edited; reopen it first."}` |
+| 409 | Not allowed in the record's current state (e.g. editing a published sheet, any change after scoring started, duplicate role title, editing a submitted or published matrix version, publishing an overlapping version) | `{"detail": "Only a draft sheet can be edited; reopen it first."}` |
 | 422 | Invalid request body or query parameter | FastAPI validation detail |
 | 422 | Business rules not met (weightage total, applicability, upload rows) | `{"detail": "Please correct the problems listed.", "issues": [{"message", "field", "row"}]}`; `row` is the spreadsheet row for uploads |
 
@@ -232,7 +246,7 @@ APPROVED; the previous approved version becomes SUPERSEDED.
 | GET | `/api/jds` | `org:read` | `department_id`, `plant_id`, `search`, `include_inactive` |
 | POST | `/api/jds` | `jd:write` | creates the JD with a DRAFT version 1; 409 for a duplicate role title |
 | GET | `/api/jds/{id}` | `org:read` | with all versions |
-| GET, PUT | `/api/jds/{id}/versions/{version_id}` | `org:read` / `jd:write` | PUT only while DRAFT; every current-format field |
+| GET, PUT | `/api/jds/{id}/versions/{version_id}` | `org:read` / `jd:write` | PUT only while DRAFT; every current-format field except age band and gender: these are not collected until HR and legal confirm a lawful need, a value is refused (422), and saving or revising clears an earlier one |
 | POST | `/api/jds/{id}/versions/{version_id}/propose` | `jd:write` | HOD step |
 | POST | `…/authorise` | `jd:authorise` | Plant Head step; not the proposer |
 | POST | `…/approve` | `jd:approve` | COO/CHRO step; not an earlier signatory |
@@ -243,18 +257,18 @@ APPROVED; the previous approved version becomes SUPERSEDED.
 
 | Method | Path | Capability | Notes |
 |---|---|---|---|
-| GET | `/api/kpi/policies` | `org:read` | scoring policies (achievement bands → 0–5) |
-| POST, PUT | `/api/kpi/policies[/{id}]` | GLOBAL `kpi:write` | direction is fixed after creation |
-| POST | `/api/kpi/policies/{id}/preview` | `org:read` | `{"achievement_percent"}` or, for zero tolerance, `{"actual"}` → `{"score"}` |
+| GET | `/api/kpi/policies` | `org:read` | scoring policies; since Stage K each carries `matrix` (code, version in force today, latest version) |
+| POST, PUT | `/api/kpi/policies[/{id}]` | GLOBAL `matrix:write` | creates the policy's KPI-scoring matrix, or a new draft of it, from bands; it scores nothing until the CHRO approves it and it is published; direction is fixed after creation |
+| POST | `/api/kpi/policies/{id}/preview` | `org:read` | `{"achievement_percent"}` or, for zero tolerance, `{"actual"}` → `{"score", "matrix_version_id", "version_no", "status"}` (the version in force today, else the latest) |
 | GET | `/api/kpi/library` | `org:read` | `plant_id` + `department_id` = KPIs usable there; `search`, `include_inactive` |
-| POST, PUT | `/api/kpi/library[/{id}]` | `kpi:write` | applicability must lie within the writer's scope; 409 for a duplicate name |
+| POST, PUT | `/api/kpi/library[/{id}]` | `kpi:write` | applicability must lie within the writer's scope; 409 for a duplicate name; `reporting_frequency` (MONTHLY, QUARTERLY), `aggregation` (SUM, AVERAGE, LAST, MIN, MAX) and `measurement_method` are needed before a sheet using the KPI is published |
 | GET | `/api/kpi/quarters` | `org:read` | status DRAFT = KPI setup open; OPEN = scoring started |
 | POST | `/api/kpi/quarters/{id}/start-scoring` | GLOBAL `quarter:start` | locks every PUBLISHED sheet of the quarter; DRAFT sheets stay unscorable |
 | GET | `/api/kpi/sheets` | `org:read` | `quarter_id` (required), `plant_id`, `department_id`, `search`: one row per assignment active in the quarter, with its sheet if any |
 | POST | `/api/kpi/sheets` | `kpi:write` | `{"assignment_id", "quarter_id"}`; one sheet per assignment per quarter |
 | GET | `/api/kpi/sheets/{id}` | `org:read` or own sheet | |
 | PUT | `/api/kpi/sheets/{id}` | `kpi:write` | DRAFT only, quarter not started; weightages as text with ≤ 2 decimals |
-| POST | `/api/kpi/sheets/{id}/publish` | `kpi:write` | weightages must total exactly 100.00; freezes each item's scoring policy |
+| POST | `/api/kpi/sheets/{id}/publish` | `kpi:write` | weightages must total exactly 100.00; binds each item to the approved matrix version in force on the quarter's start date and freezes it with the KPI's measurement (`matrix_version`, `measurement` on each item); 422 when a policy has no such version or a measurement is undefined |
 | POST | `/api/kpi/sheets/{id}/reopen` | `kpi:write` | `{"reason"}`; before scoring starts only |
 | POST | `/api/kpi/sheets/{id}/copy` | `kpi:write` | `{"target_quarter_id"}` → new DRAFT sheet |
 | GET | `/api/kpi/uploads/template` | `org:read` | .xlsx with the KPIs and policies visible to the caller |
@@ -269,6 +283,79 @@ APPROVED; the previous approved version becomes SUPERSEDED.
 Every change above is written to the audit trail in the same transaction
 as the change itself (deviations record the original and revised KPIs,
 the reason, both approvers and the times).
+
+### Configurable matrices (Stage K)
+
+Concepts, validation rules and how to extend the framework are in
+[matrix-framework.md](matrix-framework.md). A version's `definition` is
+JSON validated by the rule engine. Content with errors can only be saved as
+a DRAFT, and the API never evaluates code or spreadsheet formulas.
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| GET | `/api/matrix-types` | `matrix:read` | the types the caller may read, with every field, data type, source, aggregation and limit needed to render forms; `policy_note` while a type awaits approved configuration |
+| GET | `/api/matrix-types/{code}/template` | `matrix:write` | blank generated workbook (.xlsx) for a new matrix of the type |
+| POST | `/api/matrix-types/{code}/check` | read access to the type | `{"definition", "attributes", "inputs"?}` → `{"check", "rule_summaries", "preview", "preview_error"}`; validates (and previews) unsaved content, stores nothing |
+| GET | `/api/matrices` | `matrix:read` | `matrix_type`, `status` (latest version), `search`; compensation types only with `matrix:read_compensation` |
+| POST | `/api/matrices` | `matrix:write` | `{"matrix_type", "name", "description", "attributes", "applicability": [{"plant_id", "department_id"}]}` → the matrix with an empty DRAFT version 1; a KPI-scoring matrix also gets its scoring policy |
+| GET, PUT | `/api/matrices/{id}` | `matrix:read` / `matrix:write` | detail with every version, `can_write`, `can_revise`; PUT changes the name and description |
+| POST | `/api/matrices/{id}/revisions` | `matrix:write` | new DRAFT copied from the latest version; 409 while a draft or submitted version is open |
+| GET | `/api/matrices/{id}/versions/{vid}` | `matrix:read` | definition, `definition_hash`, `check` (errors, warnings, test results, gaps, readiness, `ready_to_submit`), rules in words, allowed `actions` |
+| PUT | `/api/matrices/{id}/versions/{vid}` | `matrix:write` | `{"definition", "effective_from", "effective_to", "applicability", "change_summary"}`; DRAFT only (409 otherwise); saved even with errors, which the response's `check` lists; ≤ 200 KB |
+| POST | `…/versions/{vid}/preview` | `matrix:read` | `{"inputs"}` → `{"outputs", "rule", "used_default", "inputs"}`; 422 for invalid input, an ambiguous match or "stop with an error" |
+| POST | `…/versions/{vid}/submit` | `matrix:write` | needs a clean check, an effective date and applicability (422 lists what is missing) |
+| POST | `…/versions/{vid}/withdraw` | `matrix:write` | SUBMITTED → DRAFT |
+| POST | `…/versions/{vid}/approve` | `matrix:approve` | `{"note"?}`; not the author or submitter (403) |
+| POST | `…/versions/{vid}/reject` | `matrix:approve` | `{"reason"}` (required) |
+| POST | `…/versions/{vid}/publish` | `matrix:write` or `matrix:approve` | APPROVED only; puts it in force from `effective_from` and ends the version it replaces the day before |
+| GET | `…/versions/{vid}/template` | `matrix:read` | the version as a workbook, to edit and upload again |
+| POST | `/api/matrices/uploads/preview` | `matrix:write` | multipart `file` (.xlsx ≤ 1 MB, generated by the portal) → action (create, update_draft, new_version), content, problems with their sheet and row, warnings, test results, `ready`; saves nothing |
+| POST | `/api/matrices/uploads/confirm` | `matrix:write` | same form; re-validates and saves a DRAFT in one transaction, or nothing; records the uploader, file name, SHA-256 and template version |
+
+### Monthly KPI data and quarterly results (Stage K)
+
+Import contract: CSV with a header row (UTF-8, with or without BOM) or
+.xlsx, at most 2 MB and 5000 rows. Columns are matched by name, or by an
+explicit `mapping`.
+
+| Column | Required | Meaning |
+|---|---|---|
+| Employee Code | yes | the employee's code in the PMS |
+| Plant Code, Department Code | when the employee has more than one assignment | identifies the KPI sheet |
+| KPI | yes | the KPI's code or name, as on the sheet |
+| Period | no | `YYYY-MM`; must equal the month being imported |
+| Actual | when the scoring matrix uses the actual | the month's value in the KPI's unit |
+| Unit | no | must match the sheet's unit |
+| one column per imported matrix input | when the matrix needs it | e.g. a category or count the matrix reads |
+
+Rules for an import:
+
+- Only published or locked sheets in the caller's `kpi:write` scope receive
+  data.
+- The month must have started and must lie in the quarter.
+- Results that are already published refuse new data.
+- A value already stored is replaced only with `replace_existing=true`.
+- A file identical to an earlier import of the same month is flagged.
+- Formulas in .xlsx files are read as their cached values and never
+  evaluated.
+- No data comes from SAP in this stage.
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| GET | `/api/kpi/data/template` | `org:read` | `quarter_id`, `period` (`YYYY-MM`) → .xlsx pre-filled with the KPIs needing data |
+| POST | `/api/kpi/data/preview` | `kpi:write` | multipart `quarter_id`, `period`, `file`, `mapping`? (JSON: field key → column), `replace_existing` → lines (new, replace, unchanged), issues with rows, warnings, `ready`; saves nothing |
+| POST | `/api/kpi/data/confirm` | `kpi:write` | same form; stores every value or none, with an import record (file name, size, SHA-256, who, when; not the file) |
+| GET | `/api/kpi/data/imports` | `org:read` | `quarter_id`; imports within the caller's scope |
+| GET | `/api/kpi/sheets/{id}/values` | readers of the sheet | stored monthly source values with their import and row |
+| POST | `/api/kpi/results/calculate` | `kpi:write` | `{"quarter_id", "sheet_ids"?}` → `{"calculated", "unchanged", "published", "complete"}`; published results are never recalculated |
+| GET | `/api/kpi/results` | `org:read` | `quarter_id`, `plant_id`, `department_id`, `search` |
+| GET | `/api/kpi/results/{sheet_id}` | readers of the sheet | calculated (exact), final (2 decimals), override and published scores; per-KPI explanation; allowed actions |
+| POST | `/api/kpi/results/{sheet_id}/review` | `kpi:write` | a complete, current result of a locked sheet with no pending override |
+| POST | `/api/kpi/results/{sheet_id}/publish` | `score:publish` | a reviewed result; final and immutable |
+| POST | `/api/kpi/results/{sheet_id}/overrides` | `kpi:write` | `{"proposed_score" (0–5, ≤ 2 decimals), "reason" (≥ 10 chars)}`; the calculated score is kept |
+| GET | `/api/kpi/overrides[/{id}]` | `org:read` | `status` (PENDING, APPLIED, REJECTED, VOIDED) |
+| POST | `/api/kpi/overrides/{id}/approve` | `deviation:approve_hr` / `_plant` | `{"as": "HR_HEAD" \| "PLANT_HEAD"}`; applied when both sides have approved |
+| POST | `/api/kpi/overrides/{id}/reject` | either approver | `{"reason"}` |
 
 ## Local demo accounts
 
@@ -287,6 +374,7 @@ code.
 | `demo.employee` | EMPLOYEE (own record only) |
 | `demo.hrhead.a` | HR_HEAD, PLANT (Plant A) |
 | `demo.planthead.a` | PLANT_HEAD, PLANT (Plant A) |
+| `demo.hrhead` | HR_HEAD, GLOBAL (authors company-wide matrices) |
 
 ```powershell
 # from PMS_Backend, with DEMO_USER_PASSWORD set in .env

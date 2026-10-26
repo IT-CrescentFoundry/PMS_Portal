@@ -5,7 +5,15 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import DeviationStatus, KpiDirection, KpiSheetStatus, QuarterStatus
+from app.models.enums import (
+    DeviationStatus,
+    KpiAggregation,
+    KpiDirection,
+    KpiSheetStatus,
+    MatrixVersionStatus,
+    QuarterStatus,
+    ReportingFrequency,
+)
 from app.schemas.employee import DesignationRef, EmployeeRef
 from app.schemas.jd import UserRef
 from app.schemas.organization import DepartmentRef, ORMModel, PlantRef
@@ -40,14 +48,33 @@ class PolicyRef(ORMModel):
     name: str
 
 
+class MatrixVersionBrief(BaseModel):
+    id: int
+    version_no: int
+    status: MatrixVersionStatus
+    effective_from: date | None
+    effective_to: date | None
+
+
+class PolicyMatrix(BaseModel):
+    """The versioned KPI-scoring matrix behind a policy (Stage K)."""
+
+    id: int
+    code: str
+    in_force: MatrixVersionBrief | None  # published version in force today
+    latest: MatrixVersionBrief
+
+
 class PolicyRead(PolicyRef):
     description: str | None
     direction: KpiDirection
+    # Stage J band representation; empty for policies configured as matrices.
     bands: list[Band]
     fallback_score: int
     met_score: int | None
     breached_score: int | None
     is_active: bool
+    matrix: PolicyMatrix | None = None
 
 
 class PreviewRequest(BaseModel):
@@ -58,6 +85,10 @@ class PreviewRequest(BaseModel):
 
 class PreviewResult(BaseModel):
     score: int
+    # The matrix version used: the one in force today, else the latest (a draft).
+    matrix_version_id: int | None = None
+    version_no: int | None = None
+    status: MatrixVersionStatus | None = None
 
 
 # --- KPI library ---------------------------------------------------------------------------
@@ -84,6 +115,10 @@ class KpiWrite(BaseModel):
     data_source: str | None = Field(default=None, max_length=50)
     applicability: list[ApplicabilityIn] = Field(min_length=1, max_length=50)
     is_active: bool = True
+    # Measurement (Stage K); required before a sheet using the KPI is published.
+    reporting_frequency: ReportingFrequency | None = None
+    aggregation: KpiAggregation | None = None
+    measurement_method: str | None = Field(default=None, max_length=500)
 
 
 class KpiRef(ORMModel):
@@ -100,6 +135,9 @@ class KpiRead(KpiRef):
     data_source: str | None
     is_active: bool
     applicability: list[ApplicabilityRead]
+    reporting_frequency: ReportingFrequency | None
+    aggregation: KpiAggregation | None
+    measurement_method: str | None
 
 
 # --- quarters and sheets -----------------------------------------------------------------
@@ -176,6 +214,13 @@ class CopyRequest(BaseModel):
     target_quarter_id: int
 
 
+class ItemMatrixVersion(BaseModel):
+    id: int
+    matrix_id: int
+    matrix_code: str
+    version_no: int
+
+
 class SheetItemRead(BaseModel):
     id: int
     kpi: KpiRef
@@ -184,7 +229,10 @@ class SheetItemRead(BaseModel):
     target_note: str | None
     unit: str
     scoring_policy: PolicyRef
-    frozen: bool  # the scoring policy was frozen at publication
+    frozen: bool  # the scoring rule was frozen at publication
+    # Stage K: the exact approved matrix version bound at publication.
+    matrix_version: ItemMatrixVersion | None = None
+    measurement: dict[str, Any] | None = None
 
 
 class JDRef(BaseModel):

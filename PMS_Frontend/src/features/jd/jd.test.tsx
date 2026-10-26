@@ -173,6 +173,28 @@ describe('JD editor', () => {
                         validateForm({ ...form, replacement_of: '' }, true).replacement_of,
                 ).toBeDefined()
         })
+
+        it('does not collect age band or gender, and clears an earlier value on save', async () => {
+                setupEditor(deptHeadUser)
+                renderApp('/jds/new')
+                await screen.findByLabelText('Role title')
+                expect(screen.queryByLabelText(/age band/i)).not.toBeInTheDocument()
+                expect(contentFromForm(emptyForm()).age_band_gender).toBeNull()
+        })
+
+        it('explains that an earlier age band and gender value is removed', async () => {
+                const api = setupEditor(deptHeadUser)
+                api.set('GET /api/jds/5', reply(200, jdDetail))
+                api.set(
+                        'GET /api/jds/5/versions/50',
+                        reply(200, jdVersion({ status: 'DRAFT', age_band_gender: 'Up to 35' })),
+                )
+                renderApp('/jds/5/versions/50/edit')
+                expect(
+                        await screen.findByText('Age band and gender are no longer collected'),
+                ).toBeInTheDocument()
+                expect(screen.queryByDisplayValue('Up to 35')).not.toBeInTheDocument()
+        })
 })
 
 describe('navigation for JD & KPI setup', () => {

@@ -50,9 +50,60 @@ class NatureOfJob(StrEnum):
 
 
 class KpiDirection(StrEnum):
+    """What a good result looks like. Always chosen explicitly, never inferred
+    from a KPI's title; the scoring matrix carries the actual rule."""
+
     HIGHER_IS_BETTER = "HIGHER_IS_BETTER"
     LOWER_IS_BETTER = "LOWER_IS_BETTER"
     ZERO_TOLERANCE = "ZERO_TOLERANCE"  # target is zero occurrences
+    TARGET_RANGE = "TARGET_RANGE"      # best when close to the target (exact or within a band)
+    CATEGORICAL = "CATEGORICAL"        # scored from a category, e.g. an audit grade
+    COMPOSITE = "COMPOSITE"            # scored from a combination of inputs
+
+
+class KpiAggregation(StrEnum):
+    """How a KPI's monthly actuals combine into the quarterly actual."""
+
+    SUM = "SUM"
+    AVERAGE = "AVERAGE"
+    LAST = "LAST"
+    MIN = "MIN"
+    MAX = "MAX"
+
+
+class ReportingFrequency(StrEnum):
+    MONTHLY = "MONTHLY"
+    QUARTERLY = "QUARTERLY"  # one value per quarter
+
+
+class MatrixVersionStatus(StrEnum):
+    """Configuration approval lifecycle (HR Head authors, CHRO approves)."""
+
+    DRAFT = "DRAFT"            # editable
+    SUBMITTED = "SUBMITTED"    # awaiting CHRO
+    APPROVED = "APPROVED"      # approved, not yet in force
+    REJECTED = "REJECTED"      # kept for the record; revise into a new version
+    PUBLISHED = "PUBLISHED"    # in force from effective_from (until effective_to)
+    SUPERSEDED = "SUPERSEDED"  # replaced before it took effect
+
+
+class MatrixVersionSource(StrEnum):
+    PORTAL = "PORTAL"
+    UPLOAD = "UPLOAD"
+    SEED = "SEED"  # synthetic demo data
+
+
+class ScoreResultStatus(StrEnum):
+    CALCULATED = "CALCULATED"  # system result; recalculated when inputs change
+    REVIEWED = "REVIEWED"      # checked by the manager
+    PUBLISHED = "PUBLISHED"    # final and immutable
+
+
+class ScoreOverrideStatus(StrEnum):
+    PENDING = "PENDING"
+    APPLIED = "APPLIED"    # both approvals given
+    REJECTED = "REJECTED"
+    VOIDED = "VOIDED"      # the result was recalculated; request again if still needed
 
 
 class KpiSheetStatus(StrEnum):

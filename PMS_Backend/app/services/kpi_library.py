@@ -1,8 +1,13 @@
-"""KPI library (shared definitions + applicability) and scoring policies."""
+"""KPI library (shared definitions + applicability) and scoring policies.
+
+Since Stage K a scoring policy is the handle KPIs refer to; its rule is a
+versioned KPI-scoring matrix (app/services/matrix_service.py) that the CHRO
+approves. The policy endpoints kept from Stage J create and revise those
+matrices from threshold bands.
+"""
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import func, select
@@ -10,13 +15,18 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth.permissions import Permission, Principal
 from app.models import (
+    KpiAggregation,
     KpiApplicability,
     KpiDefinition,
     KpiDirection,
     KpiScoringPolicy,
+    Matrix,
+    MatrixVersion,
+    MatrixVersionStatus,
     PlantDepartment,
+    ReportingFrequency,
 )
-from app.services import scoring
+from app.services import clock, matrix_rules, scoring
 from app.services.audit import AuditActor, field_changes, record_event
 from app.services.errors import (
     ConflictError,
@@ -25,13 +35,16 @@ from app.services.errors import (
     PermissionDeniedError,
     ValidationFailedError,
 )
-from app.services.scope import AccessScope, department_visible, plant_visible
+from app.services import matrix_service
+from app.services.applicability import (
+    ApplicabilityInput,
+    applicability_visible,
+    applicability_writable,
+)
+from app.services.matrix_types import Source
+from app.services.scope import AccessScope
 
-
-@dataclass(frozen=True)
-class ApplicabilityInput:
-    plant_id: int | None
-    department_id: int | None
+__all__ = ["ApplicabilityInput", "applicability_visible", "applicability_writable"]
 
 
 def _norm(text: str) -> str:
@@ -39,31 +52,6 @@ def _norm(text: str) -> str:
 
 
 # --- applicability rules ----------------------------------------------------------------
-
-def applicability_visible(db: Session, access: AccessScope, a: KpiApplicability | ApplicabilityInput) -> bool:
-    if access.is_empty:
-        return False
-    if a.plant_id is None and a.department_id is None:
-        return True  # company-wide KPI
-    if a.plant_id is not None and a.department_id is not None:
-        return access.allows_unit(a.plant_id, a.department_id)
-    if a.department_id is not None:
-        return department_visible(db, access, a.department_id)
-    return plant_visible(db, access, a.plant_id)  # type: ignore[arg-type]
-
-
-def applicability_writable(access: AccessScope, a: ApplicabilityInput) -> bool:
-    """A writer may only make a KPI applicable where their whole scope reaches."""
-    if access.is_global:
-        return True
-    if a.plant_id is not None and a.department_id is not None:
-        return access.allows_unit(a.plant_id, a.department_id)
-    if a.department_id is not None:
-        return a.department_id in access.department_ids
-    if a.plant_id is not None:
-        return a.plant_id in access.plant_ids
-    return False  # company-wide needs GLOBAL
-
 
 def applies_to_unit(kpi: KpiDefinition, plant_id: int, department_id: int) -> bool:
     return any(
@@ -110,46 +98,101 @@ def _policy_values(values: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _require_policy_author(principal: Principal) -> None:
+    if not principal.scope_for(Permission.MATRIX_WRITE).is_global:
+        raise PermissionDeniedError("Scoring policies are company-wide matrix configurations; "
+                                    "they need an HR Head with company-wide scope.")
+
+
+def _band_draft(data: dict[str, Any], summary: str) -> matrix_service.DraftContent:
+    definition = matrix_rules.definition_from_bands(
+        data["direction"], data["bands"], data["fallback_score"], data["met_score"],
+        data["breached_score"])
+    return matrix_service.DraftContent(definition=definition, effective_from=None,
+                                       effective_to=None,
+                                       applicability=[ApplicabilityInput(None, None)],
+                                       change_summary=summary)
+
+
 def create_policy(db: Session, principal: Principal, actor: AuditActor, values: dict[str, Any]) -> KpiScoringPolicy:
-    if not principal.scope_for(Permission.KPI_WRITE).is_global:
-        raise PermissionDeniedError("Scoring policies are company-wide; they need company-wide KPI access.")
+    """Bands -> a new KPI-scoring matrix whose version 1 is a DRAFT: it scores
+    nothing until submitted, approved by the CHRO and published."""
+    _require_policy_author(principal)
     data = _policy_values(values)
-    if db.scalar(select(KpiScoringPolicy.id).where(KpiScoringPolicy.name == data["name"])):
-        raise ConflictError("A scoring policy with this name already exists.")
-    policy = KpiScoringPolicy(code="pending", **data)
-    db.add(policy)
-    db.flush()
-    policy.code = f"POL-{policy.id:03d}"
-    record_event(db, actor=actor, action="scoring_policy.create", entity_type="scoring_policy",
-                 entity_id=policy.id, summary=f"Created scoring policy {policy.code} '{policy.name}'",
-                 changes={"direction": data["direction"].value, "bands": data["bands"],
-                          "fallback_score": data["fallback_score"]})
+    matrix = matrix_service.create_matrix(
+        db, principal, actor, matrix_type="KPI_SCORING", name=data["name"],
+        description=data["description"], attributes={"direction": data["direction"].value},
+        applicability=[ApplicabilityInput(None, None)])
+    matrix_service.save_draft(db, principal, actor, matrix, matrix_service.latest_version(matrix),
+                              _band_draft(data, "Created from scoring bands."))
+    policy = matrix_service.policy_for(db, matrix)
+    assert policy is not None
     return policy
 
 
 def update_policy(db: Session, principal: Principal, actor: AuditActor, policy_id: int,
                   values: dict[str, Any]) -> KpiScoringPolicy:
-    """Edits affect drafts only: published sheets keep a frozen copy."""
-    if not principal.scope_for(Permission.KPI_WRITE).is_global:
-        raise PermissionDeniedError("Scoring policies are company-wide; they need company-wide KPI access.")
+    """Bands -> the policy matrix's open draft, or a new draft revision.
+    Approved and published versions never change in place."""
+    _require_policy_author(principal)
     policy = get_policy(db, policy_id)
     data = _policy_values(values)
     if data["direction"] != policy.direction:
         raise ConflictError("A policy's direction cannot change; create a new policy instead.")
-    clash = db.scalar(select(KpiScoringPolicy.id).where(
-        KpiScoringPolicy.name == data["name"], KpiScoringPolicy.id != policy.id))
-    if clash:
-        raise ConflictError("A scoring policy with this name already exists.")
-    fields = ("name", "description", "bands", "fallback_score", "met_score", "breached_score")
-    before = {f: getattr(policy, f) for f in fields}
-    for f in fields:
-        setattr(policy, f, data[f])
+    if policy.matrix_id is None:
+        raise ConflictError("This policy predates versioned matrices; configure a new KPI "
+                            "scoring matrix instead.")
+    matrix = matrix_service.get_matrix(db, principal, policy.matrix_id)
+    if data["name"] != matrix.name or data["description"] != matrix.description:
+        matrix_service.update_matrix(db, principal, actor, matrix.id, name=data["name"],
+                                     description=data["description"])
+    version = matrix_service.open_version(matrix)
+    if version is not None and version.status != MatrixVersionStatus.DRAFT:
+        raise ConflictError("A version of this policy is awaiting CHRO approval.")
+    if version is None:
+        version = matrix_service.revise(db, principal, actor, matrix)
+        matrix = matrix_service.get_matrix(db, principal, matrix.id)
+        version = next(v for v in matrix.versions if v.id == version.id)
+    matrix_service.save_draft(db, principal, actor, matrix, version,
+                              _band_draft(data, "Updated from scoring bands."))
     policy.is_active = bool(values.get("is_active", True))
     db.flush()
-    record_event(db, actor=actor, action="scoring_policy.update", entity_type="scoring_policy",
-                 entity_id=policy.id, summary=f"Updated scoring policy {policy.code}",
-                 changes=field_changes(before, {f: getattr(policy, f) for f in fields}, fields))
     return policy
+
+
+def policy_matrix(db: Session, policy: KpiScoringPolicy) -> Matrix | None:
+    if policy.matrix_id is None:
+        return None
+    return db.scalars(select(Matrix).where(Matrix.id == policy.matrix_id)
+                      .options(selectinload(Matrix.versions).selectinload(MatrixVersion.scopes))
+                      ).one_or_none()
+
+
+def preview_policy(db: Session, policy: KpiScoringPolicy, *, achievement: Any = None,
+                   actual: Any = None) -> dict[str, Any]:
+    """Score for an achievement % (or an actual), using the version in force
+    today, else the latest version (a draft is labelled as such)."""
+    matrix = policy_matrix(db, policy)
+    if matrix is None:  # Stage J policy without a matrix: its frozen bands
+        return {"score": scoring.evaluate(scoring.snapshot(policy), achievement=achievement,
+                                          actual=actual),
+                "matrix_version_id": None, "version_no": None, "status": None}
+    version = (matrix_service.version_in_force(matrix, clock.today())
+               or matrix_service.latest_version(matrix))
+    definition, _report = matrix_rules.analyse(matrix_service.spec_for(matrix.matrix_type),
+                                               version.definition, matrix.attributes)
+    inputs: dict[str, Any] = {}
+    for f in definition.inputs:
+        if f.source == Source.PERCENT_OF_TARGET and achievement is not None:
+            inputs[f.key] = str(achievement)
+        elif f.source == Source.ACTUAL and actual is not None:
+            inputs[f.key] = str(actual)
+    try:
+        _definition, evaluation = matrix_service.evaluate_version(matrix, version, inputs)
+    except matrix_rules.EvaluationError as exc:
+        raise ValueError(str(exc)) from None
+    return {"score": int(evaluation.outputs["score"]), "matrix_version_id": version.id,
+            "version_no": version.version_no, "status": version.status.value}
 
 
 # --- KPI definitions -----------------------------------------------------------------------
@@ -228,6 +271,17 @@ def _check_policy_direction(db: Session, policy_id: int, direction: KpiDirection
     return policy
 
 
+def _measurement(values: dict[str, Any]) -> dict[str, Any]:
+    """How the KPI is measured; publication requires it (see kpi_scoring)."""
+    aggregation = values.get("aggregation")
+    frequency = values.get("reporting_frequency")
+    return {
+        "aggregation": KpiAggregation(aggregation) if aggregation else None,
+        "reporting_frequency": ReportingFrequency(frequency) if frequency else None,
+        "measurement_method": (values.get("measurement_method") or "").strip()[:500] or None,
+    }
+
+
 def create_definition(db: Session, principal: Principal, actor: AuditActor, values: dict[str, Any],
                       scopes: list[ApplicabilityInput]) -> KpiDefinition:
     name = _norm(values["name"])
@@ -241,6 +295,7 @@ def create_definition(db: Session, principal: Principal, actor: AuditActor, valu
         direction=direction, default_scoring_policy_id=values["default_scoring_policy_id"],
         data_source=values.get("data_source"), created_by_user_id=principal.user_id,
         applicabilities=[KpiApplicability(plant_id=a.plant_id, department_id=a.department_id) for a in scopes],
+        **_measurement(values),
     )
     db.add(kpi)
     db.flush()
@@ -265,11 +320,15 @@ def update_definition(db: Session, principal: Principal, actor: AuditActor, kpi_
     name = _norm(values["name"])
     if db.scalar(select(KpiDefinition.id).where(KpiDefinition.name == name, KpiDefinition.id != kpi.id)):
         raise ConflictError("A KPI with this name already exists in the library.")
-    fields = ("name", "description", "unit", "default_scoring_policy_id", "data_source", "is_active")
+    fields = ("name", "description", "unit", "default_scoring_policy_id", "data_source", "is_active",
+              "aggregation", "reporting_frequency", "measurement_method")
     before = {f: getattr(kpi, f) for f in fields}
     kpi.name, kpi.description, kpi.unit = name, values.get("description"), _norm(values["unit"])
     kpi.default_scoring_policy_id = values["default_scoring_policy_id"]
     kpi.data_source, kpi.is_active = values.get("data_source"), bool(values.get("is_active", True))
+    # Affects later publications only: published items keep a frozen copy.
+    for key, value in _measurement(values).items():
+        setattr(kpi, key, value)
     old_keys = sorted((a.plant_id or 0, a.department_id or 0) for a in current)
     new_keys = sorted((a.plant_id or 0, a.department_id or 0) for a in scopes)
     if old_keys != new_keys:

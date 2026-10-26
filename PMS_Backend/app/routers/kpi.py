@@ -16,8 +16,10 @@ from app.models import (
     KpiApplicability,
     KpiDefinition,
     KpiDeviation,
+    KpiScoringPolicy,
     KpiSheet,
     KpiSheetStatus,
+    MatrixVersion,
     PmsCycle,
     PmsCycleQuarter,
     QuarterStatus,
@@ -33,10 +35,13 @@ from app.schemas.kpi import (
     DeviationCreate,
     DeviationRead,
     IssueRead,
+    ItemMatrixVersion,
     JDRef,
     KpiRead,
     KpiRef,
     KpiWrite,
+    MatrixVersionBrief,
+    PolicyMatrix,
     PolicyRead,
     PolicyRef,
     PolicyWrite,
@@ -59,7 +64,7 @@ from app.schemas.kpi import (
     UploadSheetRead,
 )
 from app.schemas.organization import DepartmentRef, PlantRef
-from app.services import kpi_library, kpi_sheets, kpi_upload, scoring
+from app.services import clock, kpi_library, kpi_sheets, kpi_upload, matrix_service
 from app.services.errors import Issue, ValidationFailedError
 from app.services.kpi_sheets import ItemInput
 
@@ -85,6 +90,8 @@ def _kpi(kpi: KpiDefinition) -> KpiRead:
         id=kpi.id, code=kpi.code, name=kpi.name, direction=kpi.direction, description=kpi.description,
         unit=kpi.unit, default_scoring_policy=PolicyRef.model_validate(kpi.default_scoring_policy),
         data_source=kpi.data_source, is_active=kpi.is_active,
+        reporting_frequency=kpi.reporting_frequency, aggregation=kpi.aggregation,
+        measurement_method=kpi.measurement_method,
         applicability=[
             ApplicabilityRead(plant=PlantRef.model_validate(a.plant) if a.plant else None,
                               department=DepartmentRef.model_validate(a.department) if a.department else None,
@@ -132,7 +139,12 @@ def _sheet(db: Session, principal: Principal, sheet: KpiSheet, warnings: list[st
             id=i.id, kpi=KpiRef.model_validate(i.kpi_definition), weightage=float(i.weightage),
             target_value=None if i.target_value is None else float(i.target_value), target_note=i.target_note,
             unit=i.unit, scoring_policy=PolicyRef.model_validate(i.scoring_policy),
-            frozen=i.scoring_snapshot is not None) for i in sheet.items],
+            frozen=i.scoring_snapshot is not None,
+            matrix_version=ItemMatrixVersion(
+                id=i.matrix_version.id, matrix_id=i.matrix_version.matrix_id,
+                matrix_code=i.matrix_version.matrix.code, version_no=i.matrix_version.version_no,
+            ) if i.matrix_version is not None else None,
+            measurement=i.measurement_snapshot) for i in sheet.items],
         total=float(kpi_sheets.weight_total([i.weightage for i in sheet.items])),
         warnings=warnings, published_at=sheet.published_at, locked_at=sheet.locked_at,
         can_edit=writable and not started and sheet.status == KpiSheetStatus.DRAFT,
@@ -171,39 +183,66 @@ def _deviation(db: Session, d: KpiDeviation) -> DeviationRead:
 
 # --- scoring policies ----------------------------------------------------------------------
 
+def _brief(version: MatrixVersion | None) -> MatrixVersionBrief | None:
+    if version is None:
+        return None
+    return MatrixVersionBrief(id=version.id, version_no=version.version_no, status=version.status,
+                              effective_from=version.effective_from,
+                              effective_to=version.effective_to)
+
+
+def _policy(db: Session, policy: KpiScoringPolicy) -> PolicyRead:
+    matrix = kpi_library.policy_matrix(db, policy)
+    return PolicyRead(
+        id=policy.id, code=policy.code, name=policy.name, description=policy.description,
+        direction=policy.direction, bands=policy.bands, fallback_score=policy.fallback_score,
+        met_score=policy.met_score, breached_score=policy.breached_score,
+        is_active=policy.is_active,
+        matrix=PolicyMatrix(
+            id=matrix.id, code=matrix.code,
+            in_force=_brief(matrix_service.version_in_force(matrix, clock.today())),
+            latest=_brief(matrix_service.latest_version(matrix)),
+        ) if matrix is not None else None,
+    )
+
+
 @router.get("/policies", response_model=list[PolicyRead])
 def list_policies(db: DbSession, _scope: OrgScope, include_inactive: bool = False):
-    return [PolicyRead.model_validate(p) for p in kpi_library.list_policies(db, include_inactive)]
+    return [_policy(db, p) for p in kpi_library.list_policies(db, include_inactive)]
 
 
 @router.post("/policies", response_model=PolicyRead, status_code=status.HTTP_201_CREATED)
 def create_policy(body: PolicyWrite, db: DbSession, principal: CurrentPrincipal, actor: AuditActorDep):
+    """Creates a KPI-scoring matrix from bands as a DRAFT; it scores nothing
+    until the CHRO approves it and it is published."""
     with transaction(db):
         policy = kpi_library.create_policy(db, principal, actor, body.model_dump())
-    return PolicyRead.model_validate(policy)
+    return _policy(db, policy)
 
 
 @router.put("/policies/{policy_id}", response_model=PolicyRead)
 def update_policy(policy_id: int, body: PolicyWrite, db: DbSession, principal: CurrentPrincipal,
                   actor: AuditActorDep):
+    """Writes the bands to the policy matrix's draft (or a new draft revision)."""
     with transaction(db):
         policy = kpi_library.update_policy(db, principal, actor, policy_id, body.model_dump())
-    return PolicyRead.model_validate(policy)
+    return _policy(db, policy)
 
 
 @router.post("/policies/{policy_id}/preview", response_model=PreviewResult)
 def preview_policy(policy_id: int, body: PreviewRequest, db: DbSession, _scope: OrgScope):
-    """Score for an achievement % (or, for zero tolerance, an actual value)."""
+    """Score for an achievement % (or an actual value, e.g. incidents), using
+    the matrix version in force today, else the latest version."""
     policy = kpi_library.get_policy(db, policy_id)
     try:
-        score = scoring.evaluate(
-            scoring.snapshot(policy),
+        result = kpi_library.preview_policy(
+            db, policy,
             achievement=None if body.achievement_percent is None else Decimal(str(body.achievement_percent)),
             actual=None if body.actual is None else Decimal(str(body.actual)),
         )
     except ValueError as exc:
         raise ValidationFailedError([Issue(str(exc))]) from None
-    return PreviewResult(score=score)
+    return PreviewResult(**result)
 
 
 # --- KPI library ---------------------------------------------------------------------------

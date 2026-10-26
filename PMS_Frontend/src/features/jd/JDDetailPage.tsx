@@ -459,9 +459,6 @@ function JDContentView({ version }: { version: JDVersion }) {
                                                 {version.work_experience}
                                         </Fact>
                                         <Fact label="Languages">{version.languages}</Fact>
-                                        <Fact label="Age band & gender">
-                                                {version.age_band_gender}
-                                        </Fact>
                                 </dl>
                         </Block>
                         <Block title="Job relationship">

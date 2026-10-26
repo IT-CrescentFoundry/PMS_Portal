@@ -1,10 +1,12 @@
 import type { BadgeTone } from '../../components/common/Badge'
 import type {
         DeviationStatus,
+        KpiAggregation,
         KpiDirection,
         KpiSheetStatus,
         Quarter,
         QuarterStatus,
+        ReportingFrequency,
         ScoringPolicy,
 } from '../../types/api'
 import { formatDate } from '../../utils/format'
@@ -22,6 +24,23 @@ export const DIRECTION_LABELS: Record<KpiDirection, string> = {
         HIGHER_IS_BETTER: 'Higher is better',
         LOWER_IS_BETTER: 'Lower is better',
         ZERO_TOLERANCE: 'Zero tolerance',
+        TARGET_RANGE: 'Within a target range',
+        CATEGORICAL: 'Categorical result',
+        COMPOSITE: 'Composite of several inputs',
+}
+
+/** How a KPI's monthly values combine into the quarterly actual. */
+export const AGGREGATION_LABELS: Record<KpiAggregation, string> = {
+        SUM: 'Sum of the months',
+        AVERAGE: 'Average of the months',
+        LAST: 'Latest month',
+        MIN: 'Lowest month',
+        MAX: 'Highest month',
+}
+
+export const FREQUENCY_LABELS: Record<ReportingFrequency, string> = {
+        MONTHLY: 'Monthly',
+        QUARTERLY: 'Quarterly (one value)',
 }
 
 export const SHEET_STATUS: Record<KpiSheetStatus, { label: string; tone: BadgeTone }> = {
@@ -42,8 +61,15 @@ export const DEVIATION_STATUS: Record<DeviationStatus, { label: string; tone: Ba
         REJECTED: { label: 'Rejected', tone: 'danger' },
 }
 
-/** Plain-language rule, e.g. "above 100% → 5, above 90% → 4, otherwise 1". */
+/** Plain-language rule, e.g. "above 100% → 5, above 90% → 4, otherwise 1". For a
+ *  policy configured as a matrix, the version in force (the matrix holds the rules). */
 export function describePolicy(policy: ScoringPolicy): string {
+        if (policy.matrix) {
+                const v = policy.matrix.in_force
+                return v
+                        ? `Matrix ${policy.matrix.code} version ${v.version_no}, in force since ${formatDate(v.effective_from)}`
+                        : `Matrix ${policy.matrix.code}: no approved version in force yet`
+        }
         if (policy.direction === 'ZERO_TOLERANCE') {
                 return `No incident → ${policy.met_score ?? '—'}; any incident → ${policy.breached_score ?? '—'}`
         }

@@ -17,13 +17,20 @@ import { useAction } from '../../hooks/useAction'
 import { useApiQuery } from '../../hooks/useApiQuery'
 import { createKpi, getKpi, listPolicies, updateKpi } from '../../services/kpiApi'
 import { listOrgUnits } from '../../services/organizationApi'
-import type { Kpi, KpiDirection, OrgUnit, ScoringPolicy } from '../../types/api'
+import type {
+        Kpi,
+        KpiAggregation,
+        KpiDirection,
+        OrgUnit,
+        ReportingFrequency,
+        ScoringPolicy,
+} from '../../types/api'
 import { parseId } from '../../utils/params'
 import { useCurrentUser } from '../auth/AuthContext'
 import { canWriteKpi } from '../auth/permissions'
 import { InvalidLink } from '../common/InvalidLink'
 import { departmentsOf, plantsOf } from '../organization/orgUnits'
-import { DIRECTION_LABELS, describePolicy } from './kpiLabels'
+import { AGGREGATION_LABELS, DIRECTION_LABELS, FREQUENCY_LABELS, describePolicy } from './kpiLabels'
 
 /** /kpi/library/new */
 export function KpiCreatePage() {
@@ -86,6 +93,11 @@ function KpiEditor({ units, policies, kpi: loaded }: EditorProps) {
         const [policyId, setPolicyId] = useState(kpi ? String(kpi.default_scoring_policy.id) : '')
         const [dataSource, setDataSource] = useState(kpi?.data_source ?? '')
         const [active, setActive] = useState(kpi?.is_active ?? true)
+        const [frequency, setFrequency] = useState<ReportingFrequency | ''>(
+                kpi?.reporting_frequency ?? '',
+        )
+        const [aggregation, setAggregation] = useState<KpiAggregation | ''>(kpi?.aggregation ?? '')
+        const [method, setMethod] = useState(kpi?.measurement_method ?? '')
         const [scopes, setScopes] = useState<ScopeRow[]>(
                 kpi
                         ? kpi.applicability.map((a) => ({
@@ -136,6 +148,9 @@ function KpiEditor({ units, policies, kpi: loaded }: EditorProps) {
                                 department_id: s.departmentId ? Number(s.departmentId) : null,
                         })),
                         is_active: active,
+                        reporting_frequency: frequency || null,
+                        aggregation: frequency === 'MONTHLY' ? aggregation || null : null,
+                        measurement_method: method.trim() || null,
                 }
                 const result = await save.run(() =>
                         kpi ? updateKpi(kpi.id, body) : createKpi(body),
@@ -198,7 +213,7 @@ function KpiEditor({ units, policies, kpi: loaded }: EditorProps) {
                                                 hint={
                                                         kpi
                                                                 ? 'Fixed once the KPI exists.'
-                                                                : undefined
+                                                                : 'Choose explicitly; it is never inferred from the name.'
                                                 }
                                                 value={direction}
                                                 disabled={kpi !== undefined}
@@ -257,6 +272,70 @@ function KpiEditor({ units, policies, kpi: loaded }: EditorProps) {
                                                         }
                                                 />
                                         )}
+                                </fieldset>
+
+                                <fieldset
+                                        disabled={!writable}
+                                        className={`${cardClasses} grid grid-cols-1 gap-4 p-4 sm:grid-cols-2`}
+                                >
+                                        <legend className="px-1 text-base font-semibold text-slate-900">
+                                                Measurement
+                                        </legend>
+                                        <p className="text-sm text-slate-600 sm:col-span-2">
+                                                How the actual is measured. Needed before a KPI
+                                                sheet using this KPI can be published; it is then
+                                                frozen on the sheet with the scoring matrix version.
+                                        </p>
+                                        <SelectField
+                                                label="Reporting frequency"
+                                                value={frequency}
+                                                onChange={(e) =>
+                                                        setFrequency(
+                                                                e.target.value as
+                                                                        ReportingFrequency | '',
+                                                        )
+                                                }
+                                                options={[
+                                                        { value: '', label: 'Not set yet' },
+                                                        ...Object.entries(FREQUENCY_LABELS).map(
+                                                                ([value, label]) => ({
+                                                                        value,
+                                                                        label,
+                                                                }),
+                                                        ),
+                                                ]}
+                                        />
+                                        {frequency === 'MONTHLY' && (
+                                                <SelectField
+                                                        label="Monthly values combine into the quarter by"
+                                                        hint="Chosen explicitly for each KPI, e.g. sum for counts, average for rates."
+                                                        value={aggregation}
+                                                        onChange={(e) =>
+                                                                setAggregation(
+                                                                        e.target.value as
+                                                                                KpiAggregation | '',
+                                                                )
+                                                        }
+                                                        options={[
+                                                                { value: '', label: 'Not set yet' },
+                                                                ...Object.entries(
+                                                                        AGGREGATION_LABELS,
+                                                                ).map(([value, label]) => ({
+                                                                        value,
+                                                                        label,
+                                                                })),
+                                                        ]}
+                                                />
+                                        )}
+                                        <div className="sm:col-span-2">
+                                                <TextAreaField
+                                                        label="Measurement method (optional)"
+                                                        hint="e.g. the report or formula the actual comes from."
+                                                        maxLength={500}
+                                                        value={method}
+                                                        onChange={(e) => setMethod(e.target.value)}
+                                                />
+                                        </div>
                                 </fieldset>
 
                                 <fieldset

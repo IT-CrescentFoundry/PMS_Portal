@@ -150,8 +150,15 @@ def list_jds(
 
 # --- content validation ---------------------------------------------------------------
 
+AGE_GENDER_NOTICE = ("Age band and gender are not collected: they stay out of active data "
+                     "collection until HR and legal confirm a lawful need, and never influence "
+                     "performance scoring.")
+
+
 def _validate_content(content: dict[str, Any], *, for_proposal: bool) -> list[Issue]:
     issues: list[Issue] = []
+    if content.get("age_band_gender"):
+        issues.append(Issue(AGE_GENDER_NOTICE, "age_band_gender"))
     sections = content.get("responsibilities") or []
     for i, section in enumerate(sections, 1):
         if not str(section.get("heading", "")).strip():
@@ -406,12 +413,14 @@ def new_revision(db: Session, principal: Principal, actor: AuditActor, jd_id: in
     approved = next((v for v in jd.versions if v.status == JDVersionStatus.APPROVED), None)
     if approved is None:
         raise ConflictError("A new revision starts from the approved version.")
+    content = _content_of(approved)
+    content["age_band_gender"] = None  # never carried forward (see AGE_GENDER_NOTICE)
     version = JobDescriptionVersion(
         job_description_id=jd.id,
         version_no=max(v.version_no for v in jd.versions) + 1,
         status=JDVersionStatus.DRAFT,
         created_by_user_id=principal.user_id,
-        **_content_of(approved),
+        **content,
     )
     db.add(version)
     db.flush()

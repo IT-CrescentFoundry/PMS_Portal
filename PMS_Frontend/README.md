@@ -68,8 +68,11 @@ Ports 8001 and 5174 must be free when the tests start.
 
 The e2e database keeps its data between runs, so specs must be repeatable:
 `e2e/jd-kpi.spec.ts` gives each JD a unique title and reopens the KPI sheet
-an earlier run published. No spec starts quarterly scoring, because that
-would lock the demo quarter for good.
+an earlier run published. `e2e/matrix-scoring.spec.ts` creates its own matrix
+and KPI on every run, swaps the KPI into the locked demo sheet through a
+deviation, and imports and calculates October data without publishing a
+final score. No spec starts quarterly scoring or publishes a score, because
+either would freeze demo data for good.
 
 ## How it works
 
@@ -78,7 +81,9 @@ src/
   app/            App shell and route table
   components/     layout (sidebar, header), common UI (buttons, states, fields), tables
   features/       auth, dashboard, plants, departments, employees, reports, account,
-                  jd (job descriptions), kpi (library, sheets, upload, deviations)
+                  jd (job descriptions), kpi (library, sheets, upload, deviations),
+                  matrix (configurable matrices: list, editor, versions, Excel upload),
+                  scores (monthly data import, quarterly results, overrides)
   services/       apiClient.ts (the only HTTP client) and one module per API area
   hooks/          useApiQuery (cancellable, race-safe data loading),
                   useAction (one save or sign-off at a time, with its error)
@@ -130,6 +135,18 @@ KPI weightages are entered and sent as text and added up in whole hundredths
 (`features/kpi/weightage.ts`), so 33.33 + 33.33 + 33.34 is exactly 100 and
 33.33 × 3 is 99.99. Floating point never decides whether a sheet may be
 published, and the API checks the same rule again.
+
+### Configurable matrices
+
+The matrix editor is generated from `GET /api/matrix-types`: the type's
+standard fields, the data types and value source allowed for custom fields,
+and its limits. A field added in the editor appears at once in every rule,
+test case and preview (`features/matrix/matrixDraft.ts` keys everything by a
+stable field id, so renaming a key keeps conditions attached). The browser
+never decides whether a configuration is valid: **Check the rules** sends the
+unsaved content to the API's rule engine, the same code that validates
+uploads, and shows its report. Range bounds start with no inclusivity
+chosen, so "more than" versus "at least" is always an explicit decision.
 
 ### Data and figures
 

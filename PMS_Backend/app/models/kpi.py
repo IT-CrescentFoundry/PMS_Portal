@@ -28,13 +28,21 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-from app.models.enums import DeviationStatus, KpiDirection, KpiSheetStatus, enum_values
+from app.models.enums import (
+    DeviationStatus,
+    KpiAggregation,
+    KpiDirection,
+    KpiSheetStatus,
+    ReportingFrequency,
+    enum_values,
+)
 from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.cycle import PmsCycleQuarter
     from app.models.employee import EmployeeAssignment
     from app.models.jd import JobDescription
+    from app.models.matrix import Matrix, MatrixVersion
     from app.models.organization import Department, Plant
 
 
@@ -43,13 +51,20 @@ def _direction_enum() -> Enum:
 
 
 class KpiScoringPolicy(TimestampMixin, Base):
-    """A reusable achievement matrix (workbook 'PMS Prerequisites', Sheet1).
+    """The scoring policy a KPI or sheet item refers to.
 
-    HIGHER_IS_BETTER: first band with achievement % > threshold, scanning the
-    highest threshold first; LOWER_IS_BETTER: first band with achievement % <
-    threshold, scanning the lowest first. Comparisons are strict, as in the
-    workbook formulas. No band matched -> fallback_score.
-    ZERO_TOLERANCE: met_score if the actual is zero, else breached_score.
+    Since Stage K the rule itself is a versioned KPI-scoring MATRIX
+    (`matrix_id`): HR Head authors versions, the CHRO approves them, and a
+    published sheet item freezes the exact version it used.
+
+    The band columns are the Stage J representation, kept unchanged for
+    sheets published before Stage K (their frozen `scoring_snapshot` uses
+    them). Stage J semantics: HIGHER_IS_BETTER: first band with achievement %
+    > threshold, scanning the highest threshold first; LOWER_IS_BETTER: first
+    band with achievement % < threshold, scanning the lowest first; no band
+    matched -> fallback_score; ZERO_TOLERANCE: met_score if the actual is
+    zero, else breached_score. A policy without a matrix cannot be used for
+    new publications.
     """
 
     __tablename__ = "kpi_scoring_policies"
@@ -72,6 +87,9 @@ class KpiScoringPolicy(TimestampMixin, Base):
     met_score: Mapped[int | None] = mapped_column(SmallInteger)
     breached_score: Mapped[int | None] = mapped_column(SmallInteger)
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    matrix_id: Mapped[int | None] = mapped_column(ForeignKey("matrices.id"), unique=True)
+
+    matrix: Mapped[Matrix | None] = relationship()
 
 
 class KpiDefinition(TimestampMixin, Base):
@@ -91,6 +109,15 @@ class KpiDefinition(TimestampMixin, Base):
         index=True,
     )
     data_source: Mapped[str | None] = mapped_column(String(50))  # e.g. MIS, SAP (future), Manual
+    # Measurement semantics (Stage K); required before a sheet using the KPI
+    # is published, and frozen onto its items at publication.
+    aggregation: Mapped[KpiAggregation | None] = mapped_column(
+        Enum(KpiAggregation, name="kpi_aggregation", values_callable=enum_values)
+    )
+    reporting_frequency: Mapped[ReportingFrequency | None] = mapped_column(
+        Enum(ReportingFrequency, name="reporting_frequency", values_callable=enum_values)
+    )
+    measurement_method: Mapped[str | None] = mapped_column(String(500))
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
 
@@ -189,13 +216,20 @@ class KpiSheetItem(Base):
     scoring_policy_id: Mapped[int] = mapped_column(
         ForeignKey("kpi_scoring_policies.id"), index=True
     )
-    # Frozen copy of the policy at publication, so later policy edits never
-    # change a published or locked quarter.
+    # Stage J: frozen copy of the policy bands at publication. Stage K items
+    # store {"matrix_version_id", "definition_hash"} here instead.
     scoring_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # Stage K: the exact approved matrix version and the measurement
+    # semantics in force when the sheet was published (or a deviation applied).
+    matrix_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("matrix_versions.id"), index=True
+    )
+    measurement_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     sheet: Mapped[KpiSheet] = relationship(back_populates="items")
     kpi_definition: Mapped[KpiDefinition] = relationship()
     scoring_policy: Mapped[KpiScoringPolicy] = relationship()
+    matrix_version: Mapped[MatrixVersion | None] = relationship()
 
 
 class KpiDeviation(Base):

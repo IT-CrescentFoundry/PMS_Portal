@@ -265,7 +265,17 @@ export interface JDUpdate extends JDContent {
 
 // --- KPI management (Stage J) ------------------------------------------------------------
 
-export type KpiDirection = 'HIGHER_IS_BETTER' | 'LOWER_IS_BETTER' | 'ZERO_TOLERANCE'
+/** Never inferred from a title: chosen explicitly per KPI and scoring policy. */
+export type KpiDirection =
+        | 'HIGHER_IS_BETTER'
+        | 'LOWER_IS_BETTER'
+        | 'ZERO_TOLERANCE'
+        | 'TARGET_RANGE'
+        | 'CATEGORICAL'
+        | 'COMPOSITE'
+/** How a KPI's monthly values combine into the quarterly actual. */
+export type KpiAggregation = 'SUM' | 'AVERAGE' | 'LAST' | 'MIN' | 'MAX'
+export type ReportingFrequency = 'MONTHLY' | 'QUARTERLY'
 export type KpiSheetStatus = 'DRAFT' | 'PUBLISHED' | 'LOCKED'
 export type QuarterStatus = 'DRAFT' | 'OPEN' | 'CLOSED'
 export type DeviationStatus = 'PENDING' | 'APPLIED' | 'REJECTED'
@@ -282,14 +292,41 @@ export interface PolicyRef {
         name: string
 }
 
+export interface MatrixVersionBrief {
+        id: number
+        version_no: number
+        status: MatrixVersionStatus
+        effective_from: string | null
+        effective_to: string | null
+}
+
+/** The versioned KPI-scoring matrix behind a policy (Stage K). */
+export interface PolicyMatrix {
+        id: number
+        code: string
+        /** The published version in force today; null when none is. */
+        in_force: MatrixVersionBrief | null
+        latest: MatrixVersionBrief
+}
+
 export interface ScoringPolicy extends PolicyRef {
         description: string | null
         direction: KpiDirection
+        /** Stage J band representation of the policy's first version. */
         bands: Band[]
         fallback_score: number
         met_score: number | null
         breached_score: number | null
         is_active: boolean
+        matrix: PolicyMatrix | null
+}
+
+export interface PolicyPreview {
+        score: number
+        /** The version used: the one in force today, else the latest (possibly a draft). */
+        matrix_version_id: number | null
+        version_no: number | null
+        status: MatrixVersionStatus | null
 }
 
 export interface Applicability {
@@ -312,6 +349,9 @@ export interface Kpi extends KpiRef {
         data_source: string | null
         is_active: boolean
         applicability: Applicability[]
+        reporting_frequency: ReportingFrequency | null
+        aggregation: KpiAggregation | null
+        measurement_method: string | null
 }
 
 export interface KpiWrite {
@@ -326,6 +366,9 @@ export interface KpiWrite {
                 department_id: number | null
         }[]
         is_active: boolean
+        reporting_frequency: ReportingFrequency | null
+        aggregation: KpiAggregation | null
+        measurement_method: string | null
 }
 
 export interface Quarter {
@@ -382,6 +425,19 @@ export interface SheetItem {
         scoring_policy: PolicyRef
         /** The scoring rule was frozen when the sheet was published. */
         frozen: boolean
+        /** The exact approved matrix version bound at publication (Stage K). */
+        matrix_version: {
+                id: number
+                matrix_id: number
+                matrix_code: string
+                version_no: number
+        } | null
+        /** How the KPI is measured, frozen at publication. */
+        measurement: {
+                reporting_frequency?: ReportingFrequency | null
+                aggregation?: KpiAggregation | null
+                measurement_method?: string | null
+        } | null
 }
 
 export interface SheetItemInput {
@@ -485,4 +541,486 @@ export interface Deviation {
         rejected_at: string | null
         rejection_reason: string | null
         applied_at: string | null
+}
+
+// --- Configurable matrices (Stage K) -------------------------------------------------------
+
+export type MatrixVersionStatus =
+        'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'PUBLISHED' | 'SUPERSEDED'
+export type MatrixVersionSource = 'PORTAL' | 'UPLOAD' | 'SEED'
+export type MatrixDataType = 'DECIMAL' | 'INTEGER' | 'PERCENT' | 'CATEGORY' | 'BOOLEAN' | 'DATE'
+export type MatrixFieldRole = 'input' | 'output'
+/** Where an input value comes from (an allow-list; there are no expressions). */
+export type MatrixSource =
+        'MANUAL' | 'ACTUAL' | 'TARGET' | 'PERCENT_OF_TARGET' | 'DIFFERENCE_FROM_TARGET' | 'IMPORTED'
+export type MatrixAggregation = 'SUM' | 'AVERAGE' | 'MIN' | 'MAX' | 'FIRST' | 'LAST' | 'ANY' | 'ALL'
+/** Values in a definition: numbers and dates travel as text so decimals stay exact. */
+export type MatrixValue = string | number | boolean | null
+
+/** A field as stored in a version's definition. */
+export interface MatrixField {
+        key: string
+        label: string
+        role: MatrixFieldRole
+        data_type: MatrixDataType
+        unit: string | null
+        description: string | null
+        required: boolean
+        /** Number or ISO date, as text. */
+        min: string | null
+        max: string | null
+        allowed_values: string[] | null
+        source: MatrixSource | null
+        aggregation: MatrixAggregation | null
+        round_to: number | null
+}
+
+export interface MatrixFieldMeta extends MatrixField {
+        data_type_label: string
+        source_label: string | null
+}
+
+/** Everything needed to render forms for one matrix type (GET /api/matrix-types). */
+export interface MatrixTypeMeta {
+        code: string
+        name: string
+        description: string
+        schema_version: number
+        standard_inputs: MatrixFieldMeta[]
+        outputs: MatrixFieldMeta[]
+        allow_custom_inputs: boolean
+        custom_input_types: MatrixDataType[]
+        custom_input_source: MatrixSource
+        allow_custom_outputs: boolean
+        custom_output_types: MatrixDataType[]
+        aggregations: Partial<Record<MatrixDataType, MatrixAggregation[]>>
+        max_inputs: number
+        max_outputs: number
+        max_rules: number
+        /** REFERENCE: chosen by reference (KPI policies). APPLICABILITY: by unit and date. */
+        selection: 'REFERENCE' | 'APPLICABILITY'
+        attributes: { key: string; label: string; allowed_values: string[]; description: string }[]
+        /** Shown while the type has no approved configuration. Never a value. */
+        policy_note: string | null
+        data_type_labels: Record<MatrixDataType, string>
+        source_labels: Record<MatrixSource, string>
+}
+
+/** Numbers and dates: each given bound states whether it is included. */
+export interface MatrixRangeCondition {
+        min: string | null
+        min_inclusive: boolean | null
+        max: string | null
+        max_inclusive: boolean | null
+}
+export type MatrixCondition = MatrixRangeCondition | { values: string[] } | { value: boolean }
+
+export interface MatrixRule {
+        priority: number
+        label: string | null
+        /** By input key; an input without a condition matches any value. */
+        conditions: Record<string, MatrixCondition>
+        outputs: Record<string, MatrixValue>
+}
+
+export interface MatrixNoMatch {
+        mode: 'default' | 'error'
+        outputs?: Record<string, MatrixValue> | null
+}
+
+export interface MatrixTestCase {
+        label: string
+        inputs: Record<string, MatrixValue>
+        expected: Record<string, MatrixValue>
+}
+
+export interface MatrixDefinition {
+        fields: MatrixField[]
+        rules: MatrixRule[]
+        no_match: MatrixNoMatch | null
+        test_cases: MatrixTestCase[]
+}
+
+/** A validation problem; `path` points into the definition, e.g. "rules[1].conditions.x". */
+export interface MatrixProblem {
+        path: string
+        message: string
+}
+
+export interface MatrixTestResult {
+        label: string
+        passed: boolean
+        expected: Record<string, MatrixValue>
+        actual: Record<string, MatrixValue> | null
+        rule: number | null
+        error: string | null
+}
+
+export interface MatrixReport {
+        ok: boolean
+        errors: MatrixProblem[]
+        warnings: MatrixProblem[]
+        test_results: MatrixTestResult[]
+        /** Values no rule covers (single-input matrices). */
+        gaps: string[]
+}
+
+export interface MatrixVersionCheck extends MatrixReport {
+        /** What submission additionally needs (effective date, applicability). */
+        readiness: MatrixProblem[]
+        ready_to_submit: boolean
+}
+
+export interface MatrixRuleSummary {
+        priority: number
+        label: string | null
+        description: string
+        outputs: Record<string, MatrixValue>
+}
+
+export interface MatrixEvaluation {
+        outputs: Record<string, MatrixValue>
+        rule: { priority: number; label: string | null; description: string } | null
+        used_default: boolean
+        inputs: Record<string, MatrixValue>
+}
+
+export interface MatrixCheckResponse {
+        check: MatrixReport
+        rule_summaries: MatrixRuleSummary[]
+        preview: MatrixEvaluation | null
+        preview_error: string | null
+}
+
+export interface MatrixScope {
+        plant: PlantRef | null
+        department: DepartmentRef | null
+        label: string
+}
+
+export interface MatrixScopeInput {
+        plant_id: number | null
+        department_id: number | null
+}
+
+export interface MatrixVersionSummary {
+        id: number
+        version_no: number
+        status: MatrixVersionStatus
+        schema_version: number
+        effective_from: string | null
+        effective_to: string | null
+        change_summary: string | null
+        source: MatrixVersionSource
+        source_file_name: string | null
+        template_version: number | null
+        created_by: UserRef | null
+        created_at: string
+        updated_at: string
+        submitted_by: UserRef | null
+        submitted_at: string | null
+        approved_by: UserRef | null
+        approved_at: string | null
+        approval_note: string | null
+        rejected_by: UserRef | null
+        rejected_at: string | null
+        rejection_reason: string | null
+        published_by: UserRef | null
+        published_at: string | null
+        superseded_at: string | null
+        applicability: MatrixScope[]
+}
+
+export interface MatrixSummary {
+        id: number
+        code: string
+        matrix_type: string
+        type_name: string
+        name: string
+        description: string | null
+        attributes: Record<string, string>
+        latest_version: MatrixVersionSummary
+        open_version: MatrixVersionSummary | null
+        /** The published version in force today. */
+        in_force: MatrixVersionSummary | null
+        /** KPI-scoring matrices: the policy KPIs refer to. */
+        policy: PolicyRef | null
+        policy_note: string | null
+}
+
+export interface MatrixDetail extends MatrixSummary {
+        versions: MatrixVersionSummary[]
+        can_write: boolean
+        can_revise: boolean
+}
+
+export interface MatrixVersionActions {
+        can_edit: boolean
+        can_submit: boolean
+        can_withdraw: boolean
+        can_approve: boolean
+        can_publish: boolean
+}
+
+export interface MatrixVersion extends MatrixVersionSummary {
+        matrix_id: number
+        definition: MatrixDefinition
+        definition_hash: string
+        check: MatrixVersionCheck
+        rule_summaries: MatrixRuleSummary[]
+        actions: MatrixVersionActions
+}
+
+export interface MatrixCreate {
+        matrix_type: string
+        name: string
+        description: string | null
+        attributes: Record<string, string>
+        applicability: MatrixScopeInput[]
+}
+
+export interface MatrixDraftSave {
+        definition: MatrixDefinition
+        effective_from: string | null
+        effective_to: string | null
+        applicability: MatrixScopeInput[]
+        change_summary: string | null
+}
+
+export interface MatrixLocatedProblem {
+        /** Sheet and row in the workbook, e.g. "Rules, row 7". */
+        location: string
+        message: string
+}
+
+export interface MatrixUploadPreview {
+        action: 'create' | 'update_draft' | 'new_version' | null
+        matrix_type: string | null
+        type_name: string | null
+        matrix_code: string | null
+        name: string | null
+        target_version_no: number | null
+        template_version: number | null
+        schema_version: number | null
+        effective_from: string | null
+        effective_to: string | null
+        applicability: string[]
+        fields: MatrixField[]
+        rules: MatrixRuleSummary[]
+        test_results: MatrixTestResult[]
+        problems: MatrixLocatedProblem[]
+        warnings: MatrixLocatedProblem[]
+        ready: boolean
+}
+
+export interface MatrixUploadConfirmed {
+        matrix_id: number
+        matrix_code: string
+        version_id: number
+        version_no: number
+}
+
+// --- Monthly KPI data and quarterly results (Stage K) ----------------------------------------
+
+export interface DataContractField {
+        key: string
+        label: string
+        required: boolean
+        description: string
+}
+
+export interface DataImportLine {
+        row: number
+        employee_code: string
+        employee_name: string
+        assignment: string
+        kpi_code: string
+        kpi_name: string
+        actual: string | null
+        inputs: Record<string, MatrixValue> | null
+        action: 'new' | 'replace' | 'unchanged'
+        previous_actual: string | null
+        note: string | null
+}
+
+export interface DataImportIssue {
+        message: string
+        field: string | null
+        row: number | null
+}
+
+export interface DataImportPreview {
+        quarter: Quarter
+        /** "2026-10" */
+        period: string
+        file_name: string
+        file_format: string
+        columns: string[]
+        contract: DataContractField[]
+        /** Contract field key -> file column (null: not mapped). */
+        mapping: Record<string, string | null>
+        row_count: number
+        counts: { new: number; replace: number; unchanged: number }
+        issues: DataImportIssue[]
+        warnings: string[]
+        lines: DataImportLine[]
+        lines_truncated: boolean
+        duplicate_import: { id: number; file_name: string; created_at: string } | null
+        ready: boolean
+}
+
+export interface DataImportConfirmed {
+        import_id: number
+        created: number
+        replaced: number
+        unchanged: number
+        rows: number
+}
+
+export interface DataImport {
+        id: number
+        period: string
+        file_name: string
+        file_format: string
+        file_size: number
+        row_count: number
+        rows_created: number
+        rows_replaced: number
+        rows_unchanged: number
+        created_by: string | null
+        created_at: string
+}
+
+export interface MonthlyValue {
+        kpi_id: number
+        kpi_code: string
+        kpi_name: string
+        period: string
+        actual: string | null
+        inputs: Record<string, MatrixValue> | null
+        import_id: number | null
+        file_name: string | null
+        source_row: number | null
+}
+
+export type ScoreResultStatus = 'CALCULATED' | 'REVIEWED' | 'PUBLISHED'
+export type ScoreOverrideStatus = 'PENDING' | 'APPLIED' | 'REJECTED' | 'VOIDED'
+
+/** Scores travel as text ("3.40") so they stay exact. */
+export interface ResultBrief {
+        status: ScoreResultStatus
+        is_complete: boolean
+        /** Data or the sheet changed since the calculation. */
+        stale: boolean
+        calculated_score: string | null
+        final_score: string | null
+        override_score: string | null
+        published_score: string | null
+        calculated_at: string | null
+        reviewed_at: string | null
+        published_at: string | null
+        pending_override_id: number | null
+}
+
+export interface ResultRow {
+        assignment: AssignmentBrief
+        sheet: { id: number; status: KpiSheetStatus }
+        result: ResultBrief | null
+}
+
+export interface ResultList {
+        quarter: Quarter
+        rows: ResultRow[]
+}
+
+export type ResultItemStatus = 'scored' | 'provisional' | 'no_data' | 'error'
+
+/** How one KPI's score was reached (stored with the calculation). */
+export interface ResultItem {
+        item_id: number
+        kpi_id: number
+        kpi_code: string
+        kpi_name: string
+        unit: string
+        weightage: string
+        target: string | null
+        reporting_frequency: ReportingFrequency
+        aggregation: KpiAggregation | null
+        months_expected: string[]
+        months_missing: string[]
+        monthly: {
+                month: string
+                actual: string | null
+                inputs: Record<string, MatrixValue> | null
+                import_id: number | null
+                row: number | null
+        }[]
+        quarterly_actual: string | null
+        inputs: Record<string, string>
+        matrix: {
+                matrix_id: number
+                code: string
+                name: string
+                version_id: number
+                version_no: number
+                definition_hash: string
+        } | null
+        legacy_rule: boolean
+        rule: { priority?: number; label?: string | null; description: string } | null
+        used_default: boolean
+        score: number | null
+        contribution: string | null
+        status: ResultItemStatus
+        message: string | null
+}
+
+export interface ScoreOverride {
+        id: number
+        status: ScoreOverrideStatus
+        sheet_id: number
+        employee: EmployeeRef
+        plant: PlantRef
+        department: DepartmentRef
+        quarter_name: string
+        original_score: string | null
+        proposed_score: string
+        reason: string
+        requested_by: UserRef | null
+        requested_at: string
+        hr_approved_by: UserRef | null
+        hr_approved_at: string | null
+        plant_approved_by: UserRef | null
+        plant_approved_at: string | null
+        rejected_by: UserRef | null
+        rejected_at: string | null
+        rejection_reason: string | null
+        applied_at: string | null
+        voided_at: string | null
+}
+
+export interface ResultDetail {
+        sheet: { id: number; status: KpiSheetStatus }
+        quarter: Quarter
+        assignment: AssignmentBrief
+        result: ResultBrief | null
+        months: string[]
+        items: ResultItem[]
+        calculated_by: UserRef | null
+        reviewed_by: UserRef | null
+        published_by: UserRef | null
+        pending_override: ScoreOverride | null
+        applied_override: ScoreOverride | null
+        actions: {
+                can_calculate: boolean
+                can_review: boolean
+                can_publish: boolean
+                can_request_override: boolean
+        }
+}
+
+export interface CalculateResult {
+        calculated: number
+        unchanged: number
+        published: number
+        complete: number
 }

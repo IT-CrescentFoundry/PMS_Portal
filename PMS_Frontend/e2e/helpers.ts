@@ -40,6 +40,33 @@ export async function adminLookup() {
         }
 }
 
+/** The id of an employee's KPI sheet in a quarter of the demo cycle, looked up through the API. */
+export async function sheetIdOf(
+        username: string,
+        quarterNumber: number,
+        employeeCode: string,
+): Promise<number> {
+        const api = await request.newContext({ baseURL: API_ORIGIN })
+        const login = await api.post('/api/auth/login', {
+                data: { username, password: e2ePassword() },
+        })
+        expect(login.ok()).toBe(true)
+        const quarters: { id: number; quarter_number: number; status: string }[] = await (
+                await api.get('/api/kpi/quarters')
+        ).json()
+        const quarter = quarters.find((q) => q.quarter_number === quarterNumber)!
+        const sheets: {
+                rows: {
+                        assignment: { employee: { employee_code: string } }
+                        sheet: { id: number } | null
+                }[]
+        } = await (await api.get('/api/kpi/sheets', { params: { quarter_id: quarter.id } })).json()
+        await api.dispose()
+        const row = sheets.rows.find((r) => r.assignment.employee.employee_code === employeeCode)
+        expect(row?.sheet).toBeTruthy()
+        return row!.sheet!.id
+}
+
 /**
  * Collect console errors raised by the application. The browser's own
  * "Failed to load resource" lines for expected 401/403/404 API responses

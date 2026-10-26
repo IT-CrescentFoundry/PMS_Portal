@@ -36,22 +36,41 @@ class Permission(StrEnum):
     KPI_WRITE = "kpi:write"
     # Start quarterly scoring (locks the quarter); requires GLOBAL scope.
     QUARTER_START = "quarter:start"
-    # Approve deviations on the HR side / the plant side.
+    # Approve deviations (and score overrides) on the HR side / the plant side.
     DEVIATION_APPROVE_HR = "deviation:approve_hr"
     DEVIATION_APPROVE_PLANT = "deviation:approve_plant"
+    # Configurable matrices (Stage K). Reading KPI-scoring and KRA matrices;
+    # compensation matrices (CR impact, increment) need their own permission.
+    MATRIX_READ = "matrix:read"
+    MATRIX_READ_COMPENSATION = "matrix:read_compensation"
+    # Author, validate, submit, withdraw, publish and upload configurations.
+    MATRIX_WRITE = "matrix:write"
+    # Approve or reject submitted configurations (and publish them).
+    MATRIX_APPROVE = "matrix:approve"
+    # Publish reviewed quarterly scores (final and immutable).
+    SCORE_PUBLISH = "score:publish"
 
 
 P = Permission
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
-    "ADMIN": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START}),
-    "CHRO": frozenset({P.ORG_READ, P.JD_APPROVE, P.QUARTER_START, P.DEVIATION_APPROVE_HR}),
-    "HR_HEAD": frozenset(
-        {P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.DEVIATION_APPROVE_HR}
+    "ADMIN": frozenset({
+        P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.MATRIX_READ,
+        P.MATRIX_READ_COMPENSATION,
+    }),
+    "CHRO": frozenset({
+        P.ORG_READ, P.JD_APPROVE, P.QUARTER_START, P.DEVIATION_APPROVE_HR, P.MATRIX_READ,
+        P.MATRIX_READ_COMPENSATION, P.MATRIX_APPROVE, P.SCORE_PUBLISH,
+    }),
+    "HR_HEAD": frozenset({
+        P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.DEVIATION_APPROVE_HR,
+        P.MATRIX_READ, P.MATRIX_READ_COMPENSATION, P.MATRIX_WRITE, P.SCORE_PUBLISH,
+    }),
+    "HR": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ}),
+    "PLANT_HEAD": frozenset(
+        {P.ORG_READ, P.JD_AUTHORISE, P.DEVIATION_APPROVE_PLANT, P.MATRIX_READ}
     ),
-    "HR": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE}),
-    "PLANT_HEAD": frozenset({P.ORG_READ, P.JD_AUTHORISE, P.DEVIATION_APPROVE_PLANT}),
-    "DEPT_HEAD": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE}),
-    "BUDGET_USER": frozenset({P.ORG_READ}),
+    "DEPT_HEAD": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ}),
+    "BUDGET_USER": frozenset({P.ORG_READ, P.MATRIX_READ}),
     "EMPLOYEE": frozenset({P.SELF_READ}),
 }
 

@@ -29,8 +29,17 @@ setup**: role-specific job descriptions with a three-step sign-off, a shared
 KPI library with plant/department applicability, quarterly KPI sheets with
 weightages totalling 100%, Excel upload for Department Heads, locking when
 quarterly scoring starts, and deviations approved by both the HR Head and the
-Plant Head. Scoring itself (monthly data, quarterly normalization, annual
-scores) and budgets come in later stages.
+Plant Head.
+
+Stage K adds **configurable matrices and monthly scoring**: versioned decision
+tables that the HR Head defines in the portal or in generated Excel templates
+and the CHRO approves before publication; KPI sheets frozen to the exact
+approved version; monthly KPI data imports (CSV or Excel, preview before
+saving); and quarterly scores with a per-KPI explanation, review,
+publication and dual-approved manual overrides. KRA, compa-ratio and
+increment matrix types are prepared but carry no values until their
+configuration is approved. Quarterly normalization, annual scores and budgets
+come in later stages.
 
 ## Getting Started
 
@@ -78,4 +87,5 @@ its own database; the development database `pms` is never used by tests.
 
 - Authentication, authorization, endpoints and demo accounts: [docs/api.md](docs/api.md)
 - Schema design and approved business rules: [docs/database-design.md](docs/database-design.md)
+- Configurable matrices, scoring and how to extend them: [docs/matrix-framework.md](docs/matrix-framework.md)
 - What the JD and KPI workbooks established (Stage J): [docs/business-requirements/stage-j-findings.md](docs/business-requirements/stage-j-findings.md)

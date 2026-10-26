@@ -29,12 +29,15 @@ from app.models import (
     KpiScoringPolicy,
     KpiSheet,
     KpiSheetItem,
+    KpiSheetResult,
     KpiSheetStatus,
+    MatrixVersion,
     PlantDepartment,
     PmsCycleQuarter,
     QuarterStatus,
+    ScoreResultStatus,
 )
-from app.services import scoring
+from app.services import kpi_scoring
 from app.services.audit import AuditActor, record_event
 from app.services.errors import (
     ConflictError,
@@ -117,11 +120,27 @@ class SheetCheck:
     total: Decimal = Decimal("0.00")
 
 
+@dataclass
+class ResolvedItem:
+    item: ItemInput
+    kpi: KpiDefinition
+    policy: KpiScoringPolicy
+    # The approved matrix version that will govern the item (publication only).
+    version: MatrixVersion | None = None
+
+
+# Directions whose matrices compare the actual with a positive target.
+TARGETED = (KpiDirection.HIGHER_IS_BETTER, KpiDirection.LOWER_IS_BETTER, KpiDirection.TARGET_RANGE)
+
+
 def check_items(db: Session, assignment: EmployeeAssignment, items: list[ItemInput], *,
-                for_publish: bool) -> tuple[SheetCheck, list[tuple[ItemInput, KpiDefinition, KpiScoringPolicy]]]:
-    """Validate items for one assignment. Totals must be 100 % when publishing."""
+                for_publish: bool, quarter: PmsCycleQuarter | None = None
+                ) -> tuple[SheetCheck, list[ResolvedItem]]:
+    """Validate items for one assignment. Totals must be 100 % when publishing,
+    and (given the quarter) every item needs an approved matrix version in
+    force and a defined measurement."""
     check = SheetCheck()
-    resolved = []
+    resolved: list[ResolvedItem] = []
     unit = assignment.plant_department
     seen: set[int] = set()
     for n, item in enumerate(items, 1):
@@ -149,9 +168,24 @@ def check_items(db: Session, assignment: EmployeeAssignment, items: list[ItemInp
         if kpi.direction == KpiDirection.ZERO_TOLERANCE:
             if item.target_value not in (None, Decimal("0")):
                 check.issues.append(Issue(f"{label}: a zero-tolerance KPI has a target of 0.", "target_value"))
-        elif item.target_value is None or item.target_value <= 0:
+        elif kpi.direction in TARGETED and (item.target_value is None or item.target_value <= 0):
             check.issues.append(Issue(f"{label}: enter a quarterly target greater than 0.", "target_value"))
-        resolved.append((item, kpi, policy))
+        entry = ResolvedItem(item, kpi, policy)
+        if for_publish and quarter is not None:
+            problem = kpi_scoring.measurement_problem(kpi)
+            if problem:
+                check.issues.append(Issue(problem, "kpi_definition_id"))
+            version, issue = kpi_scoring.resolve_version(db, policy, unit, quarter, label)
+            if issue:
+                check.issues.append(issue)
+            elif version is not None:
+                target = (Decimal("0") if kpi.direction == KpiDirection.ZERO_TOLERANCE
+                          else item.target_value)
+                problem = kpi_scoring.version_problem(version, target, label)
+                if problem:
+                    check.issues.append(Issue(problem, "target_value"))
+                entry.version = version
+        resolved.append(entry)
 
     check.total = weight_total([i.weightage for i in items])
     if items and check.total != HUNDRED:
@@ -171,22 +205,30 @@ def check_items(db: Session, assignment: EmployeeAssignment, items: list[ItemInp
     return check, resolved
 
 
-def _write_items(sheet: KpiSheet, resolved: list[tuple[ItemInput, KpiDefinition, KpiScoringPolicy]],
-                 *, snapshot: bool) -> None:
+def _write_items(sheet: KpiSheet, resolved: list[ResolvedItem], *, freeze: bool) -> None:
+    """Replace the items. With freeze, bind each to its approved matrix
+    version and the KPI's measurement semantics (publication, deviations)."""
     sheet.items.clear()
     # Delete the old rows first: the unit of work would otherwise insert the
     # new rows before deleting the old ones and hit uq_kpi_sheet_items_kpi.
     object_session(sheet).flush()
-    for order, (item, kpi, policy) in enumerate(resolved, 1):
+    for order, entry in enumerate(resolved, 1):
+        item, kpi, policy, version = entry.item, entry.kpi, entry.policy, entry.version
+        if freeze and version is None:  # check_items reports this; never freeze without one
+            raise ValidationFailedError([Issue(f"'{kpi.name}' has no approved scoring version.",
+                                               "scoring_policy_id")])
+        unit = (item.unit or kpi.unit).strip()[:30]
         sheet.items.append(KpiSheetItem(
             kpi_definition_id=kpi.id,
             sort_order=order,
             weightage=item.weightage,
             target_value=Decimal("0") if kpi.direction == KpiDirection.ZERO_TOLERANCE else item.target_value,
             target_note=(item.target_note or "").strip()[:255] or None,
-            unit=(item.unit or kpi.unit).strip()[:30],
+            unit=unit,
             scoring_policy_id=policy.id,
-            scoring_snapshot=scoring.snapshot(policy) if snapshot else None,
+            scoring_snapshot=kpi_scoring.scoring_snapshot(version, policy) if freeze else None,
+            matrix_version_id=version.id if freeze else None,
+            measurement_snapshot=kpi_scoring.measurement_snapshot(kpi, unit) if freeze else None,
         ))
 
 
@@ -200,6 +242,7 @@ def items_json(sheet: KpiSheet) -> list[dict[str, Any]]:
             "target_note": i.target_note,
             "unit": i.unit,
             "scoring_policy_id": i.scoring_policy_id,
+            "matrix_version_id": i.matrix_version_id,
         }
         for i in sheet.items
     ]
@@ -219,6 +262,8 @@ def _sheet_query():
         joinedload(KpiSheet.job_description),
         selectinload(KpiSheet.items).joinedload(KpiSheetItem.kpi_definition),
         selectinload(KpiSheet.items).joinedload(KpiSheetItem.scoring_policy),
+        selectinload(KpiSheet.items).joinedload(KpiSheetItem.matrix_version)
+        .joinedload(MatrixVersion.matrix),
     )
 
 
@@ -252,6 +297,14 @@ def _require_quarter_open_for_config(quarter: PmsCycleQuarter) -> None:
         raise ConflictError(
             "Quarterly scoring has started for this quarter; changes need an approved deviation."
         )
+
+
+def _require_scores_unpublished(db: Session, sheet: KpiSheet) -> None:
+    published = db.scalar(select(KpiSheetResult.id).where(
+        KpiSheetResult.sheet_id == sheet.id, KpiSheetResult.status == ScoreResultStatus.PUBLISHED))
+    if published:
+        raise ConflictError("The quarter's scores for this sheet are published; its KPIs can no "
+                            "longer change.")
 
 
 def get_quarter(db: Session, quarter_id: int) -> PmsCycleQuarter:
@@ -381,7 +434,7 @@ def replace_items(db: Session, principal: Principal, actor: AuditActor, sheet_id
     if check.issues:
         raise ValidationFailedError(check.issues)
     before = items_json(sheet)
-    _write_items(sheet, resolved, snapshot=False)
+    _write_items(sheet, resolved, freeze=False)
     sheet.notes = (notes or "").strip()[:1000] or None
     sheet.job_description_id = job_description_id
     db.flush()
@@ -403,10 +456,11 @@ def publish(db: Session, principal: Principal, actor: AuditActor, sheet_id: int)
         raise ConflictError("Only a draft sheet can be published.")
     items = [ItemInput(i.kpi_definition_id, i.weightage, i.target_value, i.target_note, i.unit,
                        i.scoring_policy_id) for i in sheet.items]
-    check, resolved = check_items(db, sheet.assignment, items, for_publish=True)
+    check, resolved = check_items(db, sheet.assignment, items, for_publish=True,
+                                  quarter=sheet.quarter)
     if check.issues:
         raise ValidationFailedError(check.issues)
-    _write_items(sheet, resolved, snapshot=True)  # freeze the scoring policies
+    _write_items(sheet, resolved, freeze=True)  # bind the approved matrix versions
     sheet.status = KpiSheetStatus.PUBLISHED
     sheet.published_by_user_id = principal.user_id
     sheet.published_at = func.now()
@@ -429,8 +483,10 @@ def reopen(db: Session, principal: Principal, actor: AuditActor, sheet_id: int, 
     sheet.status = KpiSheetStatus.DRAFT
     sheet.published_by_user_id = None
     sheet.published_at = None
-    for item in sheet.items:
+    for item in sheet.items:  # the next publication binds versions afresh
         item.scoring_snapshot = None
+        item.matrix_version_id = None
+        item.measurement_snapshot = None
     db.flush()
     _audit(db, actor, sheet, "kpi_sheet.reopen", f"Reopened KPI sheet {_label(sheet)}", reason=reason)
     return sheet
@@ -459,7 +515,7 @@ def copy_to_quarter(db: Session, principal: Principal, actor: AuditActor, sheet_
                      created_by_user_id=principal.user_id)
     db.add(sheet)
     db.flush()
-    _write_items(sheet, resolved, snapshot=False)
+    _write_items(sheet, resolved, freeze=False)
     db.flush()
     sheet = get_sheet(db, principal, sheet.id)
     _audit(db, actor, sheet, "kpi_sheet.copy",
@@ -525,9 +581,11 @@ def request_deviation(db: Session, principal: Principal, actor: AuditActor, shee
     _require_write(principal, sheet)
     if sheet.quarter.status == QuarterStatus.DRAFT:
         raise ConflictError("Scoring has not started for this quarter; edit the sheet directly.")
+    _require_scores_unpublished(db, sheet)
     if len(reason.strip()) < 10:
         raise ValidationFailedError([Issue("Explain the reason for the deviation (at least 10 characters).", "reason")])
-    check, _resolved = check_items(db, sheet.assignment, items, for_publish=True)
+    check, _resolved = check_items(db, sheet.assignment, items, for_publish=True,
+                                   quarter=sheet.quarter)
     if check.issues:
         raise ValidationFailedError(check.issues)
     if db.scalar(select(KpiDeviation.id).where(KpiDeviation.sheet_id == sheet.id,
@@ -581,11 +639,13 @@ def approve_deviation(db: Session, principal: Principal, actor: AuditActor, devi
 def _apply(db: Session, actor: AuditActor, deviation: KpiDeviation) -> None:
     """Apply in the SAME transaction as the final approval."""
     sheet = deviation.sheet
+    _require_scores_unpublished(db, sheet)
     items = [ItemInput.from_json(i) for i in deviation.proposed_items]
-    check, resolved = check_items(db, sheet.assignment, items, for_publish=True)
+    check, resolved = check_items(db, sheet.assignment, items, for_publish=True,
+                                  quarter=sheet.quarter)
     if check.issues:  # e.g. a KPI was deactivated since the request
         raise ValidationFailedError(check.issues)
-    _write_items(sheet, resolved, snapshot=True)
+    _write_items(sheet, resolved, freeze=True)
     sheet.status = KpiSheetStatus.LOCKED
     sheet.locked_at = func.now()
     deviation.status = DeviationStatus.APPLIED

@@ -10,7 +10,7 @@ from app.auth.csrf import CSRF_HEADER, CSRFMiddleware
 from app.auth.rate_limit import LoginRateLimiter
 from app.config import get_auth_settings, get_security_settings
 from app.db import engine
-from app.routers import auth, employees, jd, kpi, organization, reports
+from app.routers import auth, employees, jd, kpi, kpi_scores, matrix, organization, reports
 from app.services.errors import (
     ConflictError,
     NotFoundError,
@@ -50,6 +50,8 @@ app.include_router(employees.router)
 app.include_router(reports.router)
 app.include_router(jd.router)
 app.include_router(kpi.router)
+app.include_router(kpi_scores.router)
+app.include_router(matrix.router)
 
 
 @app.exception_handler(NotFoundError)

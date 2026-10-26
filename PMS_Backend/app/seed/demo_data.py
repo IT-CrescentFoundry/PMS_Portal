@@ -12,7 +12,14 @@ Scenarios covered:
 """
 from datetime import date
 
-from app.models.enums import CycleStatus, KpiDirection, QuarterStatus, ScopeType
+from app.models.enums import (
+    CycleStatus,
+    KpiAggregation,
+    KpiDirection,
+    QuarterStatus,
+    ReportingFrequency,
+    ScopeType,
+)
 
 PLANTS = [
     {"code": "PLT-A", "name": "Demo Plant A", "location": "Northfield (fictional)"},
@@ -123,7 +130,7 @@ ROLES = [
     {"code": "DEPT_HEAD", "name": "Department Head", "description": "Department responsibility within assigned scope"},
     {"code": "EMPLOYEE", "name": "Employee", "description": "Self-service access to own records"},
     {"code": "BUDGET_USER", "name": "Budget User", "description": "Authorized budget planning and allocation"},
-    {"code": "HR_HEAD", "name": "HR Head", "description": "Approves KPI deviations (HR side) within assigned scope"},
+    {"code": "HR_HEAD", "name": "HR Head", "description": "Configures scoring matrices; approves KPI deviations (HR side) within assigned scope"},
     {"code": "PLANT_HEAD", "name": "Plant Head", "description": "Authorises JDs and approves KPI deviations for the plant"},
 ]
 
@@ -140,6 +147,8 @@ USERS = [
     # synthetic headcounts stay unchanged).
     {"username": "demo.hrhead.a", "email": "demo.hrhead.a@example.com", "employee": None},
     {"username": "demo.planthead.a", "email": "demo.planthead.a@example.com", "employee": None},
+    # Company-wide HR Head (Stage K): authors company-wide matrix configurations.
+    {"username": "demo.hrhead", "email": "demo.hrhead@example.com", "employee": None},
 ]
 
 # (username, role code, [(scope type, plant code | None, department code | None)])
@@ -157,6 +166,7 @@ USER_ROLES = [
     ("demo.employee", "EMPLOYEE", []),
     ("demo.hrhead.a", "HR_HEAD", [(ScopeType.PLANT, "PLT-A", None)]),
     ("demo.planthead.a", "PLANT_HEAD", [(ScopeType.PLANT, "PLT-A", None)]),
+    ("demo.hrhead", "HR_HEAD", [(ScopeType.GLOBAL, None, None)]),
 ]
 
 # Achievement matrices from 'PMS Prerequisites.xlsx', Sheet1 (verified against
@@ -180,26 +190,67 @@ SCORING_POLICIES = [
                     "is inverted (finding D1, to be confirmed)."},
 ]
 
+# Stage K: each demo policy is backed by a KPI-scoring matrix whose version 1
+# reproduces the policy's bands as a decision table. The approval trail is
+# SYNTHETIC demo data (authored and published by demo.hrhead, approved by
+# demo.chro); these are not approved company policies.
+SCORING_MATRICES = [
+    {"code": "KSM-DA", "policy": "POL-A"},
+    {"code": "KSM-DE", "policy": "POL-E"},
+    {"code": "KSM-DB", "policy": "POL-B"},
+    {"code": "KSM-DZ", "policy": "POL-Z"},
+]
+MATRIX_EFFECTIVE_FROM = date(2026, 4, 1)  # the demo cycle's start
+MATRIX_DEMO_NOTE = ("Synthetic demo approval (seed data reproducing the sample workbook matrix); "
+                    "not an approved company policy.")
+
+_SUM, _AVG = KpiAggregation.SUM, KpiAggregation.AVERAGE
+_MONTHLY = ReportingFrequency.MONTHLY
+
 # Synthetic KPI library. Applicability: (plant code | None, department code | None).
+# Measurement: reported monthly; monthly values combine into the quarter by
+# the given aggregation.
 KPI_LIBRARY = [
     {"code": "KPI-D01", "name": "Profit vs plan", "unit": "Rs lakh", "policy": "POL-A",
-     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, None)]},
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, None)],
+     "aggregation": _SUM, "method": "Monthly profit from the MIS report; the quarter is the sum."},
     {"code": "KPI-D02", "name": "Dispatch volume", "unit": "Tons", "policy": "POL-A",
-     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")]},
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")],
+     "aggregation": _SUM, "method": "Tons dispatched per month; the quarter is the sum."},
     {"code": "KPI-D03", "name": "Semi-finished goods inventory days", "unit": "Days", "policy": "POL-B",
-     "direction": KpiDirection.LOWER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")]},
+     "direction": KpiDirection.LOWER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")],
+     "aggregation": _AVG, "method": "Month-end inventory days; the quarter is the average."},
     {"code": "KPI-D04", "name": "Customer quality claims and complaints", "unit": "Count", "policy": "POL-Z",
-     "direction": KpiDirection.ZERO_TOLERANCE, "data_source": "MIS", "applicability": [(None, "QA")]},
+     "direction": KpiDirection.ZERO_TOLERANCE, "data_source": "MIS", "applicability": [(None, "QA")],
+     "aggregation": _SUM, "method": "Claims and complaints received per month; the quarter is the sum."},
     {"code": "KPI-D05", "name": "On-time delivery", "unit": "%", "policy": "POL-A",
-     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, None)]},
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, None)],
+     "aggregation": _AVG, "method": "Monthly on-time delivery %; the quarter is the average."},
     {"code": "KPI-D06", "name": "Productivity", "unit": "Tons per person-day", "policy": "POL-E",
-     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")]},
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "PROD")],
+     "aggregation": _AVG, "method": "Monthly productivity; the quarter is the average."},
     {"code": "KPI-D07", "name": "Internal rejection rate", "unit": "%", "policy": "POL-B",
-     "direction": KpiDirection.LOWER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "QA")]},
+     "direction": KpiDirection.LOWER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "QA")],
+     "aggregation": _AVG, "method": "Monthly rejection %; the quarter is the average."},
     {"code": "KPI-D08", "name": "First-pass yield", "unit": "%", "policy": "POL-E",
-     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [("PLT-A", "QA")]},
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [("PLT-A", "QA")],
+     "aggregation": _AVG, "method": "Monthly first-pass yield %; the quarter is the average."},
     {"code": "KPI-D09", "name": "Planned maintenance compliance", "unit": "%", "policy": "POL-A",
-     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "MAINT")]},
+     "direction": KpiDirection.HIGHER_IS_BETTER, "data_source": "MIS", "applicability": [(None, "MAINT")],
+     "aggregation": _AVG, "method": "Monthly compliance %; the quarter is the average."},
+]
+for _k in KPI_LIBRARY:
+    _k.setdefault("frequency", _MONTHLY)
+
+# Locked demo KPI sheets in the quarter whose scoring has started (Q3), so
+# monthly data can be imported and scored in the demo. Created once, never
+# changed by later seed runs (they are workflow records).
+# items: (KPI code, weightage %, quarterly target | None)
+DEMO_SHEETS = [
+    {"employee": "DEMO0002", "plant": "PLT-A", "department": "QA", "cycle": "FY2026-27", "quarter": 3,
+     "items": [("KPI-D01", "40", "100"), ("KPI-D04", "20", None), ("KPI-D07", "40", "2.5")]},
+    {"employee": "DEMO0003", "plant": "PLT-B", "department": "QA", "cycle": "FY2026-27", "quarter": 3,
+     "items": [("KPI-D01", "50", "80"), ("KPI-D04", "20", None), ("KPI-D07", "30", "3")]},
 ]
 
 # Dates are configuration. April-March is only this demo's example.

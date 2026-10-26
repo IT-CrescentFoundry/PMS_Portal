@@ -8,6 +8,8 @@ transaction: either the whole seed applies, or nothing does.
 """
 import os
 from collections import Counter
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -32,6 +34,14 @@ from app.models import (
     KpiApplicability,
     KpiDefinition,
     KpiScoringPolicy,
+    KpiSheet,
+    KpiSheetItem,
+    KpiSheetStatus,
+    Matrix,
+    MatrixVersion,
+    MatrixVersionScope,
+    MatrixVersionSource,
+    MatrixVersionStatus,
     Plant,
     PlantDepartment,
     PmsCycle,
@@ -42,6 +52,8 @@ from app.models import (
     UserRoleScope,
 )
 from app.seed import demo_data as data
+from app.services import kpi_scoring, matrix_rules, matrix_service
+from app.services.matrix_types import KPI_SCORING
 
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
@@ -245,6 +257,8 @@ def seed(session: Session, demo_password: str | None = None) -> Counter:
             },
             stats,
         )
+    _seed_matrices(session, policies, users, stats)
+    kpis = {}
     for k in data.KPI_LIBRARY:
         kpi = upsert(
             session,
@@ -257,9 +271,13 @@ def seed(session: Session, demo_password: str | None = None) -> Counter:
                 "default_scoring_policy_id": policies[k["policy"]].id,
                 "data_source": k["data_source"],
                 "is_active": True,
+                "reporting_frequency": k["frequency"],
+                "aggregation": k["aggregation"],
+                "measurement_method": k["method"],
             },
             stats,
         )
+        kpis[k["code"]] = kpi
         for plant_code, dept_code in k["applicability"]:
             upsert(
                 session,
@@ -273,7 +291,102 @@ def seed(session: Session, demo_password: str | None = None) -> Counter:
                 stats,
             )
 
+    _seed_demo_sheets(session, kpis, plants, departments, employees, stats)
     return stats
+
+
+def _seed_matrices(session: Session, policies: dict[str, KpiScoringPolicy],
+                   users: dict[str, User], stats: Counter) -> None:
+    """Back each demo policy with a KPI-scoring matrix. Version 1 is created
+    once (PUBLISHED, synthetic approval trail) and never changed afterwards:
+    approved configurations change only through new versions."""
+    author, approver = users["demo.hrhead"], users["demo.chro"]
+    for m in data.SCORING_MATRICES:
+        policy = policies[m["policy"]]
+        matrix = upsert(
+            session,
+            Matrix,
+            {"code": m["code"]},
+            {
+                "matrix_type": "KPI_SCORING",
+                "name": policy.name,
+                "description": policy.description,
+                "attributes": {"direction": policy.direction.value},
+                "is_active": True,
+            },
+            stats,
+        )
+        if policy.matrix_id != matrix.id:
+            policy.matrix_id = matrix.id
+        if session.scalar(select(MatrixVersion.id).where(MatrixVersion.matrix_id == matrix.id)):
+            stats[("matrix_versions", "unchanged")] += 1
+            continue
+        definition = matrix_rules.definition_from_bands(
+            policy.direction, policy.bands, policy.fallback_score, policy.met_score,
+            policy.breached_score)
+        now = datetime.now().replace(microsecond=0)
+        session.add(MatrixVersion(
+            matrix_id=matrix.id, version_no=1, status=MatrixVersionStatus.PUBLISHED,
+            schema_version=KPI_SCORING.schema_version, definition=definition,
+            definition_hash=matrix_rules.definition_hash(definition),
+            effective_from=data.MATRIX_EFFECTIVE_FROM, change_summary=data.MATRIX_DEMO_NOTE,
+            source=MatrixVersionSource.SEED, created_by_user_id=author.id,
+            submitted_by_user_id=author.id, submitted_at=now, approved_by_user_id=approver.id,
+            approved_at=now, approval_note=data.MATRIX_DEMO_NOTE, published_by_user_id=author.id,
+            published_at=now, scopes=[MatrixVersionScope(plant_id=None, department_id=None)],
+        ))
+        session.flush()
+        stats[("matrix_versions", "created")] += 1
+
+
+def _seed_demo_sheets(session: Session, kpis: dict[str, KpiDefinition], plants: dict[str, Plant],
+                      departments: dict[str, Department], employees: dict[str, Employee],
+                      stats: Counter) -> None:
+    """Locked Q3 demo sheets, created once (workflow records), with every item
+    bound to the policy's published matrix version like a real publication."""
+    for s in data.DEMO_SHEETS:
+        quarter = session.scalars(
+            select(PmsCycleQuarter).join(PmsCycle).where(
+                PmsCycle.code == s["cycle"], PmsCycleQuarter.quarter_number == s["quarter"])
+        ).one()
+        assignment = session.scalars(
+            select(EmployeeAssignment).join(EmployeeAssignment.plant_department).where(
+                EmployeeAssignment.employee_id == employees[s["employee"]].id,
+                PlantDepartment.plant_id == plants[s["plant"]].id,
+                PlantDepartment.department_id == departments[s["department"]].id,
+            ).order_by(EmployeeAssignment.effective_from.desc())
+        ).first()
+        if assignment is None:
+            raise SeedError(f"No assignment for demo sheet {s['employee']} {s['plant']}/{s['department']}.")
+        if session.scalar(select(KpiSheet.id).where(KpiSheet.employee_assignment_id == assignment.id,
+                                                    KpiSheet.cycle_quarter_id == quarter.id)):
+            stats[("kpi_sheets", "unchanged")] += 1
+            continue
+        now = datetime.now().replace(microsecond=0)
+        sheet = KpiSheet(employee_assignment_id=assignment.id, cycle_quarter_id=quarter.id,
+                         status=KpiSheetStatus.LOCKED, published_at=now, locked_at=now,
+                         notes="Synthetic demo sheet.")
+        session.add(sheet)
+        session.flush()
+        unit = session.get(PlantDepartment, assignment.plant_department_id)
+        for order, (kpi_code, weightage, target) in enumerate(s["items"], 1):
+            kpi = kpis[kpi_code]
+            policy = session.get(KpiScoringPolicy, kpi.default_scoring_policy_id)
+            version = matrix_service.resolve(session, policy.matrix_id, quarter.start_date,
+                                             unit.plant_id, unit.department_id)
+            if version is None:
+                raise SeedError(f"No published matrix version for {policy.code}.")
+            session.add(KpiSheetItem(
+                sheet_id=sheet.id, kpi_definition_id=kpi.id, sort_order=order,
+                weightage=Decimal(weightage),
+                target_value=Decimal(target) if target is not None else Decimal(0),
+                unit=kpi.unit, scoring_policy_id=policy.id,
+                scoring_snapshot=kpi_scoring.scoring_snapshot(version, policy),
+                matrix_version_id=version.id,
+                measurement_snapshot=kpi_scoring.measurement_snapshot(kpi, kpi.unit),
+            ))
+        session.flush()
+        stats[("kpi_sheets", "created")] += 1
 
 
 def demo_password_from_env() -> str | None:

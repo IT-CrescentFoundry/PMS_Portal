@@ -213,6 +213,15 @@ function JDEditor({ units, designations, existing }: EditorProps) {
                                         )}
                                 </div>
                                 <ActionError error={save.error} />
+                                {existing?.version.age_band_gender && (
+                                        <Alert title="Age band and gender are no longer collected">
+                                                This draft holds an age band or gender requirement
+                                                recorded earlier. It is removed when you save: these
+                                                details stay out of data collection until HR and
+                                                legal confirm a lawful need, and never affect
+                                                scoring.
+                                        </Alert>
+                                )}
 
                                 <Section title="Role">
                                         <TextField
@@ -410,12 +419,6 @@ function JDEditor({ units, designations, existing }: EditorProps) {
                                                 label="Languages"
                                                 maxLength={255}
                                                 {...bind('languages')}
-                                        />
-                                        <TextField
-                                                label="Age band & gender"
-                                                hint="Record only where the role genuinely and lawfully requires it."
-                                                maxLength={100}
-                                                {...bind('age_band_gender')}
                                         />
                                 </Section>
 
