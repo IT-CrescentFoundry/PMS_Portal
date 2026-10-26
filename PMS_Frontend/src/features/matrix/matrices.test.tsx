@@ -12,6 +12,7 @@ import {
         matrixVersion,
 } from '../../test/matrixFixtures'
 import { installMockApi, reply } from '../../test/mockApi'
+import { normalizationDefinition, normalizationType } from '../../test/quarterlyFixtures'
 import { renderApp } from '../../test/renderApp'
 import type { CurrentUser, MatrixUploadPreview } from '../../types/api'
 
@@ -279,6 +280,84 @@ describe('matrix editor', () => {
                 renderApp('/matrices/30/versions/301/edit')
                 expect(await screen.findByText('Only a draft can be edited')).toBeInTheDocument()
                 expect(screen.queryByRole('button', { name: 'Save draft' })).not.toBeInTheDocument()
+        })
+})
+
+describe('normalization policy', () => {
+        const policyDetail = matrixDetail({
+                matrix_type: 'NORMALIZATION',
+                type_name: 'Normalization policy',
+                name: 'Test normalization',
+                attributes: {},
+        })
+        const policyVersion = matrixVersion({ definition: normalizationDefinition })
+
+        it('edits the groups in the portal and keeps the group input in step', async () => {
+                const api = installMockApi({
+                        'GET /api/auth/me': reply(200, matrixHrHead),
+                        'GET /api/matrix-types': reply(200, [kpiScoringType, normalizationType]),
+                        'GET /api/org-units': reply(200, units),
+                        'GET /api/matrices/30': reply(200, policyDetail),
+                        'GET /api/matrices/30/versions/301': reply(200, policyVersion),
+                        'PUT /api/matrices/30/versions/301': reply(200, policyVersion),
+                })
+                const { user } = renderApp('/matrices/30/versions/301/edit')
+                const settings = await screen.findByRole('region', {
+                        name: 'Normalization settings',
+                })
+                expect(within(settings).getByText('Total 100.00 %')).toBeInTheDocument()
+
+                const third = within(settings).getByLabelText('Target % of group 3')
+                await user.clear(third)
+                await user.type(third, '30')
+                expect(within(settings).getByText('Total 110.00 %')).toBeInTheDocument()
+                await user.clear(third)
+                await user.type(third, '20')
+                const key = within(settings).getByLabelText('Key of group 3')
+                await user.clear(key)
+                await user.type(key, 'low')
+                await user.click(screen.getByRole('button', { name: 'Save draft' }))
+
+                expect(await screen.findByText('Draft saved')).toBeInTheDocument()
+                const [put] = api.callsTo('PUT', '/api/matrices/30/versions/301')
+                const body = JSON.parse(String(put.init.body))
+                expect(body.definition.settings.groups.map((g: { key: string }) => g.key)).toEqual([
+                        'TOP',
+                        'MIDDLE',
+                        'LOW',
+                ])
+                expect(body.definition.settings.ties).toBe('REQUIRE_RESOLUTION')
+                expect(body.definition.fields[0]).toMatchObject({
+                        key: 'group',
+                        allowed_values: ['TOP', 'MIDDLE', 'LOW'],
+                })
+        })
+
+        it('shows the settings and offers no Excel download', async () => {
+                installMockApi({
+                        'GET /api/auth/me': reply(200, matrixHrHead),
+                        'GET /api/matrix-types': reply(200, [kpiScoringType, normalizationType]),
+                        'GET /api/matrices/30': reply(200, policyDetail),
+                        'GET /api/matrices/30/versions/301': reply(200, policyVersion),
+                })
+                renderApp('/matrices/30/versions/301')
+                const summary = await screen.findByRole('region', {
+                        name: 'Normalization settings',
+                })
+                expect(
+                        within(summary).getByText('Each department across all plants'),
+                ).toBeInTheDocument()
+                expect(
+                        within(summary).getByText(
+                                'Top 20% 20 % · Middle 60% 60 % (remainder) · Bottom 20% 20 %',
+                        ),
+                ).toBeInTheDocument()
+                expect(
+                        within(summary).getByText('placed by an authorized reviewer'),
+                ).toBeInTheDocument()
+                expect(
+                        screen.queryByRole('button', { name: 'Download as Excel' }),
+                ).not.toBeInTheDocument()
         })
 })
 

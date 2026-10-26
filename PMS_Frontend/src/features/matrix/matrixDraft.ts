@@ -17,6 +17,7 @@ import type {
         MatrixSource,
         MatrixTypeMeta,
         MatrixValue,
+        NormalizationSettings,
 } from '../../types/api'
 
 let counter = 0
@@ -87,12 +88,95 @@ export interface TestCaseDraft {
         expected: Record<string, string>
 }
 
+export interface GroupDraft {
+        uid: string
+        key: string
+        label: string
+        percent: string
+        remainder: boolean
+}
+
+/** Normalization policy settings while editing (every choice as text). */
+export interface SettingsDraft {
+        cohortLevel: string
+        groups: GroupDraft[]
+        sizeRounding: string
+        rankBy: string
+        ties: string
+        minCohortSize: string
+        smallCohort: string
+        smallCohortGroup: string
+        /** Designation codes, comma-separated; empty = everyone. */
+        eligibleDesignations: string
+}
+
 export interface MatrixDraftState {
         fields: FieldDraft[]
         rules: RuleDraft[]
         noMatchMode: '' | 'default' | 'error'
         noMatchOutputs: Record<string, string>
         testCases: TestCaseDraft[]
+        /** Normalization policies only. */
+        settings: SettingsDraft | null
+}
+
+export function settingsDraft(raw: NormalizationSettings): SettingsDraft {
+        return {
+                cohortLevel: raw.cohort_level ?? '',
+                groups: (raw.groups ?? []).map((g) => ({
+                        uid: uid(),
+                        key: g.key,
+                        label: g.label,
+                        percent: String(g.percent),
+                        remainder: g.remainder === true,
+                })),
+                sizeRounding: raw.size_rounding ?? '',
+                rankBy: raw.rank_by ?? '',
+                ties: raw.ties ?? '',
+                minCohortSize: raw.min_cohort_size === null ? '' : String(raw.min_cohort_size),
+                smallCohort: raw.small_cohort ?? '',
+                smallCohortGroup: raw.small_cohort_group ?? '',
+                eligibleDesignations: (raw.eligible_designations ?? []).join(', '),
+        }
+}
+
+/** As sent to the API; an unchosen setting goes as null, for the API to report. */
+export function settingsJson(d: SettingsDraft): NormalizationSettings {
+        const size = d.minCohortSize.trim()
+        return {
+                cohort_level: (d.cohortLevel || null) as NormalizationSettings['cohort_level'],
+                groups: d.groups.map((g) => ({
+                        key: g.key.trim(),
+                        label: g.label.trim(),
+                        percent: g.percent.trim(),
+                        remainder: g.remainder,
+                })),
+                size_rounding: d.sizeRounding || null,
+                rank_by: d.rankBy || null,
+                ties: d.ties || null,
+                min_cohort_size: /^\d+$/.test(size) ? Number(size) : null,
+                small_cohort: d.smallCohort || null,
+                small_cohort_group:
+                        d.smallCohort === 'DEFAULT_GROUP' ? d.smallCohortGroup || null : null,
+                eligible_designations: d.eligibleDesignations
+                        .split(',')
+                        .map((x) => x.trim())
+                        .filter(Boolean),
+        }
+}
+
+/** Keep the standard "group" input's allowed values equal to the settings' groups. */
+export function withSettings(state: MatrixDraftState, settings: SettingsDraft): MatrixDraftState {
+        const keys = settings.groups.map((g) => g.key.trim()).filter(Boolean)
+        return {
+                ...state,
+                settings,
+                fields: state.fields.map((f) =>
+                        f.role === 'input' && f.key === 'group'
+                                ? { ...f, allowedValues: keys.join('\n') }
+                                : f,
+                ),
+        }
 }
 
 export function conditionKind(dataType: MatrixDataType): ConditionDraft['kind'] {
@@ -254,6 +338,7 @@ export function draftFromDefinition(
                                 inputs: byKey(testCase.inputs, `Test case ${index + 1}`),
                                 expected: byKey(testCase.expected, `Test case ${index + 1}`),
                         })),
+                        settings: definition.settings ? settingsDraft(definition.settings) : null,
                 },
                 dropped,
         }
@@ -359,6 +444,7 @@ export function definitionFromDraft(state: MatrixDraftState): MatrixDefinition {
                         inputs: valuesOf(inputs, t.inputs, false),
                         expected: valuesOf(outputs, t.expected, false),
                 })),
+                ...(state.settings ? { settings: settingsJson(state.settings) } : {}),
         }
 }
 

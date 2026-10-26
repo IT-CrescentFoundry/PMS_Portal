@@ -517,3 +517,198 @@ def import_quarter(client: TestClient, env: ScoringEnv, values: dict[str, list[o
             continue
         resp = import_data(client, env, "confirm", csv_bytes(rows), month)
         assert resp.status_code == 200, resp.text
+
+
+# --- Stage L (quarterly review, normalization, publication) fixtures ---------------------
+
+from app.services import normalization_policy  # noqa: E402
+
+TEST_GROUPS = [
+    {"key": "TOP", "label": "Top 20%", "percent": "20", "remainder": False},
+    {"key": "MIDDLE", "label": "Middle 60%", "percent": "60", "remainder": True},
+    {"key": "BOTTOM", "label": "Bottom 20%", "percent": "20", "remainder": False},
+]
+TEST_RATINGS = {"TOP": "5", "MIDDLE": "3", "BOTTOM": "1"}
+
+
+def normalization_settings(**overrides) -> dict:
+    """Synthetic test policy: departments across plants, 20/60/20, ties for a
+    reviewer, cohorts below 5 all placed in MIDDLE."""
+    return {"cohort_level": "DEPARTMENT", "groups": TEST_GROUPS, "size_rounding": "NEAREST",
+            "rank_by": "FINAL_SCORE", "ties": "REQUIRE_RESOLUTION", "min_cohort_size": 5,
+            "small_cohort": "DEFAULT_GROUP", "small_cohort_group": "MIDDLE",
+            "eligible_designations": [], **overrides}
+
+
+def published_normalization_policy(db: Session, *, name: str = "Test normalization",
+                                   effective_from: date = date(2026, 4, 1),
+                                   scopes: list[tuple[int | None, int | None]] | None = None,
+                                   **settings) -> MatrixVersion:
+    """A NORMALIZATION matrix with a PUBLISHED version 1, as if approved earlier."""
+    definition = normalization_policy.group_rating_definition(normalization_settings(**settings),
+                                                              TEST_RATINGS)
+    matrix = Matrix(code=f"TNRM-{name[:20]}", matrix_type="NORMALIZATION", name=name,
+                    attributes={})
+    db.add(matrix)
+    db.flush()
+    version = MatrixVersion(
+        matrix_id=matrix.id, version_no=1, status=MatrixVersionStatus.PUBLISHED, schema_version=1,
+        definition=definition, definition_hash=matrix_rules.definition_hash(definition),
+        effective_from=effective_from, source=MatrixVersionSource.SEED,
+        scopes=[MatrixVersionScope(plant_id=p, department_id=d)
+                for p, d in (scopes or [(None, None)])])
+    db.add(version)
+    db.flush()
+    return version
+
+
+# Quarterly actuals of the single KPI (profit, SUM, target 100 over 3 months).
+# Scores under policy A: >100 5, >90 4, >80 3, >70 2, >50 1, else 0.
+REVIEW_ACTUALS = {
+    ("010", "P1"): (40, 40, 40),   # 120 % -> 5
+    ("003", "P2"): (35, 35, 35),   # 105 % -> 5
+    ("011", "P1"): (30, 30, 35),   # 95 % -> 4
+    ("001", "P1"): (30, 30, 35),   # 95 % -> 4   (TST001 is also at P2, target 50)
+    ("001", "P2"): (15, 15, 15),   # 45 of 50 = 90 % -> 3 (90 is not more than 90)
+    ("012", "P1"): (25, 30, 30),   # 85 % -> 3
+    ("013", "P1"): (25, 25, 25),   # 75 % -> 2
+    ("014", "P1"): (20, 20, 20),   # 60 % -> 1
+    ("002", "P2"): (10, 15, 15),   # 40 % -> 0
+}
+MONTHS = ("2026-07", "2026-08", "2026-09")
+
+
+@dataclass
+class ReviewEnv:
+    """TQ1 (Jul-Sep 2026) after scoring started, with eight Quality employees:
+    TST001 primary P1/Q and supporting P2/Q (two locked sheets), TST002 and
+    TST003 at P2/Q, TST010-TST014 at P1/Q; one KPI each (profit, target 100,
+    or 50 for TST001 at P2). A company-wide normalization policy (DEPARTMENT
+    level, 20/60/20) is published. Clients: head (Quality, all plants),
+    hr (HR Head, GLOBAL), chro, hr_p1 (HR Head, P1), plant_head (P1)."""
+
+    env: KpiEnv
+    sheets: dict[tuple[str, str], int]
+    policy: MatrixVersion
+    users: dict[str, User]
+    clients: dict[str, TestClient]
+    db: Session
+
+    @property
+    def quarter(self) -> PmsCycleQuarter:
+        return self.env.q1
+
+    def employee_id(self, code: str) -> int:
+        return self.env.org.employees[code].id
+
+    def import_all(self, actuals: dict | None = None) -> None:
+        actuals = actuals or REVIEW_ACTUALS
+        for i, month in enumerate(MONTHS):
+            rows = [[f"TST{emp}", f"TST-{plant}", "TST-Q", "TKPI-1", month, values[i]]
+                    for (emp, plant), values in actuals.items() if values[i] is not None]
+            resp = self.clients["head"].post("/api/kpi/data/confirm", data={
+                "quarter_id": str(self.quarter.id), "period": month, "replace_existing": "true"},
+                files={"file": (f"{month}.csv", csv_bytes(rows), "text/csv")})
+            assert resp.status_code == 200, resp.text
+
+    def calculate(self) -> dict:
+        resp = self.clients["head"].post("/api/kpi/results/calculate",
+                                         json={"quarter_id": self.quarter.id})
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def transition(self, to: str, client: str = "hr", reason: str | None = None):
+        return self.clients[client].post(f"/api/kpi/quarters/{self.quarter.id}/transition",
+                                         json={"to": to, "reason": reason})
+
+    def advance(self, to: str) -> dict:
+        resp = self.transition(to)
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def review_all(self) -> None:
+        for sheet_id in self.sheets.values():
+            resp = self.clients["head"].post(f"/api/kpi/results/{sheet_id}/review")
+            assert resp.status_code == 200, resp.text
+
+    def assignment(self, emp: str, plant: str) -> int:
+        return self.env.assignment_id(self.db, emp, (plant, "Q"))
+
+    def set_weights(self, p1: str = "60", p2: str = "40", client: str = "hr"):
+        return self.clients[client].put(
+            f"/api/kpi/quarters/{self.quarter.id}/employees/{self.employee_id('001')}/weights",
+            json={"weights": [{"assignment_id": self.assignment("001", "P1"), "weight": p1},
+                              {"assignment_id": self.assignment("001", "P2"), "weight": p2}]})
+
+    def to_normalization(self, actuals: dict | None = None) -> dict:
+        self.import_all(actuals)
+        self.calculate()
+        self.advance("DEPARTMENT_REVIEW")
+        self.review_all()
+        assert self.set_weights().status_code == 200
+        return self.advance("NORMALIZATION")
+
+    def runs(self, client: str = "hr") -> list[dict]:
+        resp = self.clients[client].get(f"/api/kpi/quarters/{self.quarter.id}/normalization")
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def run(self, run_id: int, client: str = "hr") -> dict:
+        resp = self.clients[client].get(f"/api/kpi/normalization-runs/{run_id}")
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def approve(self, run_id: int, client: str = "chro"):
+        return self.clients[client].post(f"/api/kpi/normalization-runs/{run_id}/approve",
+                                         json={})
+
+    def publish(self, client: str = "chro"):
+        return self.clients[client].post(f"/api/kpi/quarters/{self.quarter.id}/publish")
+
+    def to_published(self) -> dict:
+        self.to_normalization()
+        for run in self.runs():
+            assert self.approve(run["id"]).status_code == 200
+        self.advance("READY")
+        resp = self.publish()
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+
+@pytest.fixture
+def review_env(kpi_env: KpiEnv, as_role, db: Session, fixed_today) -> ReviewEnv:
+    o = kpi_env.org
+    for code in ("010", "011", "012", "013", "014"):
+        o.employees[code] = Employee(employee_code=f"TST{code}", full_name=f"Test Person {code}")
+        db.add(o.employees[code])
+        db.flush()
+        add_assignment(db, o, code, ("P1", "Q"), is_primary=True)
+    roles = {
+        "head": [("DEPT_HEAD", [(ScopeType.DEPARTMENT, None, o.departments["Q"])])],
+        "hr": [("HR_HEAD", [(ScopeType.GLOBAL, None, None)])],
+        "chro": [("CHRO", [(ScopeType.GLOBAL, None, None)])],
+        "hr_p1": [("HR_HEAD", [(ScopeType.PLANT, o.plants["P1"], None)])],
+        "plant_head": [("PLANT_HEAD", [(ScopeType.PLANT, o.plants["P1"], None)])],
+    }
+    users, clients = {}, {}
+    for key, grants in roles.items():
+        users[key], clients[key] = as_role(f"tst.rv.{key}", grants)
+    head = clients["head"]
+    sheets = {}
+    for emp, plant in REVIEW_ACTUALS:
+        created = head.post("/api/kpi/sheets", json={
+            "assignment_id": kpi_env.assignment_id(db, emp, (plant, "Q")),
+            "quarter_id": kpi_env.q1.id})
+        assert created.status_code == 201, created.text
+        sheet_id = created.json()["id"]
+        target = "50" if (emp, plant) == ("001", "P2") else "100"
+        saved = head.put(f"/api/kpi/sheets/{sheet_id}", json={"items": [
+            {"kpi_definition_id": kpi_env.kpis["profit"].id, "weightage": "100",
+             "target_value": target}]})
+        assert saved.status_code == 200, saved.text
+        assert head.post(f"/api/kpi/sheets/{sheet_id}/publish").status_code == 200
+        sheets[(emp, plant)] = sheet_id
+    started = clients["chro"].post(f"/api/kpi/quarters/{kpi_env.q1.id}/start-scoring")
+    assert started.status_code == 200, started.text
+    policy = published_normalization_policy(db)
+    return ReviewEnv(kpi_env, sheets, policy, users, clients, db)

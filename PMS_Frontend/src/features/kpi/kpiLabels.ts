@@ -51,7 +51,11 @@ export const SHEET_STATUS: Record<KpiSheetStatus, { label: string; tone: BadgeTo
 
 export const QUARTER_STATUS: Record<QuarterStatus, { label: string; tone: BadgeTone }> = {
         DRAFT: { label: 'KPI setup open', tone: 'info' },
-        OPEN: { label: 'Scoring started · KPIs locked', tone: 'neutral' },
+        OPEN: { label: 'Data collection · KPIs locked', tone: 'neutral' },
+        DEPARTMENT_REVIEW: { label: 'Department review', tone: 'info' },
+        NORMALIZATION: { label: 'Normalization', tone: 'info' },
+        READY: { label: 'Ready for publication', tone: 'warning' },
+        PUBLISHED: { label: 'Published · locked', tone: 'success' },
         CLOSED: { label: 'Closed', tone: 'neutral' },
 }
 

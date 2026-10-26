@@ -184,6 +184,13 @@ class MatrixTypeSpec:
     migrations: Mapping[int, Callable[[dict[str, Any]], dict[str, Any]]] = field(
         default_factory=dict
     )
+    # Type-specific `settings` in a version's definition, validated by
+    # settings_hook(raw settings, parsed definition, report) -> parsed value.
+    settings_hook: Callable[[Any, Any, Any], Any] | None = None
+    # The content of a new draft (default: the type's fixed outputs only).
+    initial_definition: Callable[[], dict[str, Any]] | None = None
+    # Whether versions can be authored in generated Excel workbooks.
+    excel_templates: bool = True
 
     def standard_input(self, key: str) -> FieldSpec | None:
         return next((f for f in self.standard_inputs if f.key == key), None)
@@ -332,8 +339,78 @@ INCREMENT = MatrixTypeSpec(
                 "have not been defined or approved.",
 )
 
+def _normalization_settings(raw: Any, definition: Any, report: Any) -> Any:
+    """Validate a normalization version's settings and their fit with its fields
+    and rules (imported lazily: the policy module uses the rule engine)."""
+    from app.services import normalization_policy as policy
+
+    settings = policy.parse_settings(raw, report)
+    if settings is None:
+        return None
+    keys = set(settings.keys)
+    group_field = definition.field("group")
+    if group_field is not None and set(group_field.allowed_values) != keys:
+        report.error("fields", f"{group_field.label} must list exactly the groups of the "
+                               f"settings: {', '.join(settings.keys)}.")
+    if definition.no_match is None or definition.no_match.mode == "error":
+        covered: set[str] = set()
+        for rule in definition.rules:
+            condition = rule.conditions.get("group")
+            covered |= keys if condition is None else set(condition.values)
+        missing = [k for k in settings.keys if k not in covered]
+        if definition.rules and missing:
+            report.error("rules", f"No rule gives a rating for {', '.join(missing)}; add one, or a "
+                                  "default result.")
+    return settings
+
+
+def _normalization_initial() -> dict[str, Any]:
+    from app.services import normalization_policy as policy
+
+    settings = policy.default_settings()
+    group = NORMALIZATION.standard_input("group").as_definition()
+    group["allowed_values"] = [g["key"] for g in settings["groups"]]
+    return {"fields": [group, *(f.as_definition() for f in NORMALIZATION.outputs)],
+            "rules": [], "no_match": None, "test_cases": [], "settings": settings}
+
+
+NORMALIZATION = MatrixTypeSpec(
+    code="NORMALIZATION",
+    name="Normalization policy",
+    description=(
+        "Compares the employees of a cohort (for example one department across all plants) "
+        "by their quarterly score, places them in groups with target shares (for example "
+        "top 20 %, middle 60 %, bottom 20 %), and maps each group to a normalized rating. "
+        "Each employee is counted once, through their primary assignment."
+    ),
+    schema_version=1,
+    code_prefix="NRM",
+    standard_inputs=(
+        FieldSpec("group", "Performance group", DataType.CATEGORY, "input",
+                  description="The group the employee was placed in.", source=Source.MANUAL),
+        FieldSpec("score", "Quarterly score", DataType.DECIMAL, "input", min="0", max="5",
+                  required=False, description="The employee's final quarterly score.",
+                  source=Source.MANUAL),
+    ),
+    outputs=(
+        FieldSpec("rating", "Normalized rating", DataType.DECIMAL, "output", min="0", max="5",
+                  description="The rating the group (and score) leads to; defined by the "
+                              "approved policy, never fixed in code."),
+    ),
+    allow_custom_inputs=False,
+    custom_input_types=frozenset(),
+    custom_input_source=Source.MANUAL,
+    max_inputs=2,
+    max_outputs=1,
+    selection=Selection.APPLICABILITY,
+    read_permission=Permission.MATRIX_READ,
+    settings_hook=_normalization_settings,
+    initial_definition=_normalization_initial,
+    excel_templates=False,
+)
+
 REGISTRY: dict[str, MatrixTypeSpec] = {
-    spec.code: spec for spec in (KPI_SCORING, KRA_PERFORMANCE, CR_IMPACT, INCREMENT)
+    spec.code: spec for spec in (KPI_SCORING, KRA_PERFORMANCE, CR_IMPACT, INCREMENT, NORMALIZATION)
 }
 
 
@@ -383,4 +460,23 @@ def type_metadata(spec: MatrixTypeSpec) -> dict[str, Any]:
         "policy_note": spec.policy_note,
         "data_type_labels": {t.value: label for t, label in DATA_TYPE_LABELS.items()},
         "source_labels": {s.value: label for s, label in SOURCE_LABELS.items()},
+        "excel_templates": spec.excel_templates,
+        "settings": _settings_metadata(spec),
+    }
+
+
+def _settings_metadata(spec: MatrixTypeSpec) -> dict[str, Any] | None:
+    """The choices a type's settings offer, with labels (normalization only)."""
+    if spec.code != NORMALIZATION.code:
+        return None
+    from app.services import normalization_policy as policy
+
+    return {
+        "kind": "normalization",
+        "cohort_levels": policy.COHORT_LEVELS,
+        "size_rounding": policy.ROUNDING,
+        "rank_by": policy.RANK_BY,
+        "ties": policy.TIES,
+        "small_cohort": policy.SMALL_COHORT,
+        "max_groups": policy.MAX_GROUPS,
     }

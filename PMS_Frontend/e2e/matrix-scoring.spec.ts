@@ -7,8 +7,8 @@
  * deviation, imports October values and calculates the quarter. Nothing is
  * reviewed or published as final, which would freeze the demo sheet.
  */
-import { expect, test, type Page } from '@playwright/test'
-import { collectConsoleErrors, sheetIdOf, signIn } from './helpers'
+import { expect, test } from '@playwright/test'
+import { collectConsoleErrors, sheetIdOf, signIn, signOut } from './helpers'
 
 const stamp = Date.now()
 const matrixName = `E2E delivery scoring ${stamp}`
@@ -26,11 +26,6 @@ test.beforeEach(({ page }) => {
 test.afterEach(() => {
         expect(consoleErrors).toEqual([])
 })
-
-async function signOut(page: Page) {
-        await page.getByRole('button', { name: 'Sign out' }).click()
-        await expect(page.getByText('You have been signed out.')).toBeVisible()
-}
 
 test('the HR Head configures a scoring matrix, round-trips it through Excel and the CHRO approves it', async ({
         page,

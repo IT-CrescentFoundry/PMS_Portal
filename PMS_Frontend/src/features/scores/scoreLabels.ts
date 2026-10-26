@@ -1,6 +1,7 @@
 import type { BadgeTone } from '../../components/common/Badge'
 import type {
         Quarter,
+        QuarterStatus,
         ResultBrief,
         ResultItemStatus,
         ScoreOverrideStatus,
@@ -8,9 +9,25 @@ import type {
 } from '../../types/api'
 import { todayIso } from '../../utils/format'
 
-/** The quarter to show when none is chosen: the one being scored, else the first. */
-export function scoringQuarter(quarters: Quarter[]): Quarter | undefined {
-        return quarters.find((q) => q.status === 'OPEN') ?? quarters[0]
+/** Quarters whose scores are being collected, reviewed or normalized. */
+export const IN_SCORING: QuarterStatus[] = ['OPEN', 'DEPARTMENT_REVIEW', 'NORMALIZATION', 'READY']
+
+function latest(quarters: Quarter[]): Quarter | undefined {
+        return [...quarters].sort((a, b) => b.start_date.localeCompare(a.start_date))[0]
+}
+
+/** The quarter to show when none is chosen: the most recent one in one of
+ *  `statuses` (by default, being scored), else the most recently published,
+ *  else the first. */
+export function scoringQuarter(
+        quarters: Quarter[],
+        statuses: QuarterStatus[] = IN_SCORING,
+): Quarter | undefined {
+        return (
+                latest(quarters.filter((q) => statuses.includes(q.status))) ??
+                latest(quarters.filter((q) => q.status === 'PUBLISHED')) ??
+                quarters[0]
+        )
 }
 
 /** "2026-10", "2026-11", "2026-12" for a quarter. */

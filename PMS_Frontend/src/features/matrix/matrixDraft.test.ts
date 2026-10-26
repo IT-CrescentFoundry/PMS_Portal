@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { definition, kpiScoringType } from '../../test/matrixFixtures'
+import { normalizationDefinition, normalizationType } from '../../test/quarterlyFixtures'
 import type { MatrixDefinition } from '../../types/api'
 import {
         customField,
@@ -10,6 +11,7 @@ import {
         previewInputs,
         removeField,
         suggestedKey,
+        withSettings,
         type MatrixDraftState,
 } from './matrixDraft'
 import { problemLocation } from './matrixLabels'
@@ -169,6 +171,45 @@ describe('matrix editor state', () => {
                 }
                 const { dropped } = draftFromDefinition(broken, kpiScoringType)
                 expect(dropped).toEqual(["Rule row 1 has a condition on an unknown field 'ghost'."])
+        })
+
+        it('round-trips normalization settings and keeps the group choices in step', () => {
+                const { state, dropped } = draftFromDefinition(
+                        normalizationDefinition,
+                        normalizationType,
+                )
+                expect(dropped).toEqual([])
+                expect(definitionFromDraft(state).settings).toEqual(
+                        normalizationDefinition.settings,
+                )
+
+                // Renaming a group renames the allowed values of the "group" input.
+                const settings = state.settings!
+                const renamed = withSettings(state, {
+                        ...settings,
+                        groups: settings.groups.map((g) =>
+                                g.key === 'BOTTOM' ? { ...g, key: 'LOW' } : g,
+                        ),
+                        smallCohort: 'REQUIRE_RESOLUTION',
+                        eligibleDesignations: ' ENG ,  SENG,',
+                })
+                const back = definitionFromDraft(renamed)
+                expect(back.fields.find((f) => f.key === 'group')?.allowed_values).toEqual([
+                        'TOP',
+                        'MIDDLE',
+                        'LOW',
+                ])
+                expect(back.settings?.groups.map((g) => g.key)).toEqual(['TOP', 'MIDDLE', 'LOW'])
+                // A group for small cohorts applies only to the DEFAULT_GROUP choice.
+                expect(back.settings?.small_cohort_group).toBeNull()
+                expect(back.settings?.eligible_designations).toEqual(['ENG', 'SENG'])
+
+                // Unchosen settings go to the API as null, for it to report; nothing is assumed.
+                const blank = definitionFromDraft(
+                        withSettings(state, { ...settings, ties: '', minCohortSize: 'x' }),
+                )
+                expect(blank.settings?.ties).toBeNull()
+                expect(blank.settings?.min_cohort_size).toBeNull()
         })
 
         it('suggests keys and names problem locations', () => {

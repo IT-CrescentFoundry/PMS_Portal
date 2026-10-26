@@ -199,9 +199,9 @@ def test_scope_rules_for_authors_and_readers(people, org):
 def test_compensation_matrices_are_hidden_from_other_roles(people):
     hr, dept_head = people["hr_head"][1], people["dept_head"][1]
     assert {t["code"] for t in hr.get("/api/matrix-types").json()} == {
-        "KPI_SCORING", "KRA_PERFORMANCE", "CR_IMPACT", "INCREMENT"}
+        "KPI_SCORING", "KRA_PERFORMANCE", "CR_IMPACT", "INCREMENT", "NORMALIZATION"}
     assert {t["code"] for t in dept_head.get("/api/matrix-types").json()} == {
-        "KPI_SCORING", "KRA_PERFORMANCE"}
+        "KPI_SCORING", "KRA_PERFORMANCE", "NORMALIZATION"}
     increment = create(hr, "Increment matrix", "INCREMENT").json()
     assert increment["policy_note"].startswith("Awaiting approved configuration")
     assert dept_head.get(f"/api/matrices/{increment['id']}").status_code == 404

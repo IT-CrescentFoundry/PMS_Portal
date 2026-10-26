@@ -223,13 +223,35 @@ The KPI names, targets and actuals; the ten sample employees, CTCs and
 budgets; and the "hypothetical" increment matrix values.
 
 ### Ambiguities requiring business confirmation
-1. **D1:** intended zero-tolerance scoring. Proposed: *no claims → 5; any
-   claim → 0 (or 1)*.
-2. **D2:** whether on-time delivery should use a higher-is-better matrix.
-3. **D5:** whether a rating of **0** is permitted below 50 % achievement.
-4. Whether reaching the target exactly should score 4 (current formulas) or 5.
-5. "Manager's final score" (Q14): rounding of the weighted score, or a
-   manager override.
+
+Items 1–5 were closed by the business on 2026-10-26 (Stage L). The answers
+are configuration rules; they impose no global scoring direction and no
+company matrix values:
+
+1. **D1 — closed.** Scoring is configured per KPI through its approved
+   matrix. A genuine zero-tolerance KPI may score **5 for no incidents and 0
+   for one or more** when that rule is approved for it. The workbook's
+   inverted formula is not reproduced.
+2. **D2 — closed.** Each KPI's direction and matrix are chosen explicitly
+   and approved; nothing is inferred from a KPI's name and no global
+   direction applies. On-time delivery uses whichever matrix is approved for
+   it.
+3. **D5 — closed.** A **KPI score of 0** is allowed where the KPI's approved
+   matrix gives it. It is separate from the **1–5 performance-rating scale**:
+   a score becomes a rating only through an approved, configured mapping
+   (for example a normalization policy's group-to-rating table).
+4. **Exactly on target — closed by configuration.** Each matrix states
+   whether every band boundary is included; the matrix approved for a KPI
+   decides whether 100 % scores 4 or 5. The demo matrices reproduce the
+   workbook (strict: 100 % scores 4); that is demo data, not company policy.
+5. **Manager's final score (Q14) — closed.** A manager's or employee's
+   score is **calculated** from weighted KPI contributions (exact sum,
+   rounded half-up to 2 decimals). A manual change is a **controlled
+   deviation**: a score override with a reason, approved by the HR Head and
+   Plant Head and audited, never a typed-in figure.
+
+Still open:
+
 6. **JD scope:** whether requisition fields belong in the PMS JD.
 7. **Lock trigger:** when quarterly scoring "starts". The requirements
    document asks for this to be confirmed.

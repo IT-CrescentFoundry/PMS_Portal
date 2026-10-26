@@ -9,8 +9,10 @@ from app.models.cycle import PmsCycle, PmsCycleQuarter
 from app.models.employee import Employee, EmployeeAssignment
 from app.models.enums import (
     AuditActorType,
+    CohortLevel,
     CycleStatus,
     DeviationStatus,
+    EmployeeResultStatus,
     JDVersionStatus,
     KpiAggregation,
     KpiDirection,
@@ -18,11 +20,14 @@ from app.models.enums import (
     MatrixVersionSource,
     MatrixVersionStatus,
     NatureOfJob,
+    NormalizationPlacement,
+    NormalizationRunStatus,
     QuarterStatus,
     ReportingFrequency,
     ScopeType,
     ScoreOverrideStatus,
     ScoreResultStatus,
+    SheetCommentKind,
     VacancyType,
 )
 from app.models.jd import JobDescription, JobDescriptionVersion
@@ -37,16 +42,26 @@ from app.models.kpi import (
 from app.models.kpi_data import KpiDataImport, KpiMonthlyValue, KpiScoreOverride, KpiSheetResult
 from app.models.matrix import Matrix, MatrixVersion, MatrixVersionScope
 from app.models.organization import Department, Designation, Plant, PlantDepartment
+from app.models.quarterly import (
+    AssignmentScoreWeight,
+    EmployeeQuarterResult,
+    KpiSheetComment,
+    NormalizationRun,
+)
 
 __all__ = [
+    "AssignmentScoreWeight",
     "AuditActorType",
     "AuditEvent",
+    "CohortLevel",
     "CycleStatus",
     "Department",
     "Designation",
     "DeviationStatus",
     "Employee",
     "EmployeeAssignment",
+    "EmployeeQuarterResult",
+    "EmployeeResultStatus",
     "JDVersionStatus",
     "JobDescription",
     "JobDescriptionVersion",
@@ -60,6 +75,7 @@ __all__ = [
     "KpiScoreOverride",
     "KpiScoringPolicy",
     "KpiSheet",
+    "KpiSheetComment",
     "KpiSheetItem",
     "KpiSheetResult",
     "KpiSheetStatus",
@@ -69,6 +85,9 @@ __all__ = [
     "MatrixVersionSource",
     "MatrixVersionStatus",
     "NatureOfJob",
+    "NormalizationPlacement",
+    "NormalizationRun",
+    "NormalizationRunStatus",
     "Plant",
     "PlantDepartment",
     "PmsCycle",
@@ -79,6 +98,7 @@ __all__ = [
     "ScopeType",
     "ScoreOverrideStatus",
     "ScoreResultStatus",
+    "SheetCommentKind",
     "User",
     "UserRole",
     "UserRoleScope",

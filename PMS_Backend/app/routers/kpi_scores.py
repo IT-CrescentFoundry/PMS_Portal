@@ -37,7 +37,7 @@ from app.schemas.organization import DepartmentRef, PlantRef
 from app.services import kpi_data, kpi_results
 from app.services import matrix_rules as rules
 from app.services.errors import Issue, ValidationFailedError
-from app.services.kpi_sheets import get_quarter
+from app.services.kpi_sheets import COLLECTION_STATUSES, REVIEW_STATUSES, get_quarter
 
 router = APIRouter(prefix="/api/kpi", tags=["kpi scores"], dependencies=[Depends(get_current_user)])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -204,10 +204,10 @@ def _result_read(db: Session, principal: Principal, view: kpi_results.ResultView
     sheet, result = view.sheet, view.result
     unit = sheet.assignment.plant_department
     writer = principal.scope_for(Permission.KPI_WRITE).allows_unit(unit.plant_id, unit.department_id)
-    publisher = principal.scope_for(Permission.SCORE_PUBLISH).allows_unit(unit.plant_id,
-                                                                        unit.department_id)
     ready = (result is not None and not view.stale and result.is_complete
              and sheet.status.value == "LOCKED" and view.pending_override is None)
+    collecting = sheet.quarter.status in COLLECTION_STATUSES
+    reviewing = sheet.quarter.status in REVIEW_STATUSES
     users = _users(db, {result.calculated_by_user_id, result.reviewed_by_user_id,
                         result.published_by_user_id} if result else set())
     explanation = result.explanation if result else {}
@@ -223,10 +223,14 @@ def _result_read(db: Session, principal: Principal, view: kpi_results.ResultView
         pending_override=_override(db, view.pending_override, sheet) if view.pending_override else None,
         applied_override=_override(db, view.applied_override, sheet) if view.applied_override else None,
         actions=ResultActions(
-            can_calculate=writer and (result is None or result.status != ScoreResultStatus.PUBLISHED),
-            can_review=writer and ready and result.status == ScoreResultStatus.CALCULATED,
-            can_publish=publisher and ready and result.status == ScoreResultStatus.REVIEWED,
-            can_request_override=writer and result is not None and not view.stale
+            can_calculate=writer and collecting
+            and (result is None or result.status != ScoreResultStatus.PUBLISHED),
+            can_review=writer and reviewing and ready
+            and result.status == ScoreResultStatus.CALCULATED
+            and not kpi_results.is_own(principal, sheet),
+            # Published with the whole quarter (Stage L), never per sheet.
+            can_publish=False,
+            can_request_override=writer and reviewing and result is not None and not view.stale
             and result.is_complete and result.status != ScoreResultStatus.PUBLISHED
             and view.pending_override is None),
     )

@@ -1,22 +1,15 @@
-"""Quarterly results: calculation, explanation, review, publication, overrides."""
-from decimal import Decimal
-
-import pytest
+"""Quarterly results: calculation, explanation, review, overrides. Publication
+of a whole quarter is tested in test_quarterly.py."""
 from sqlalchemy import select, update
 
-from app.auth.permissions import build_principal
-from app.dependencies import transaction
 from app.models import (
     AuditEvent,
     KpiScoreOverride,
-    KpiSheetResult,
     MatrixVersion,
     ScoreOverrideStatus,
-    ScoreResultStatus,
 )
 from app.models.enums import KpiDirection, ScopeType
-from app.services import kpi_results, matrix_rules
-from app.services.audit import AuditActor
+from app.services import matrix_rules
 from tests.conftest import csv_bytes, import_data, import_quarter, quarter_rows
 
 # profit (SUM, target 100): 105 -> 105 % -> 5   claims (SUM): 0 -> 5
@@ -91,41 +84,19 @@ def test_new_data_makes_a_result_stale(scoring_env):
     assert calculate(scoring_env, sheet_ids=[scoring_env.p1_sheet])["unchanged"] == 1
 
 
-def test_review_and_publication_rights(scoring_env, as_role):
+def test_review_rights_and_no_publication_per_sheet(scoring_env, as_role):
     head, hr = scoring_env.clients["head"], scoring_env.clients["hr_head"]
     import_quarter(head, scoring_env, FULL)
     calculate(scoring_env)
     url = f"/api/kpi/results/{scoring_env.p1_sheet}"
-    assert hr.post(f"{url}/publish").status_code == 409            # review comes first
-    assert head.post(f"{url}/review").json()["result"]["status"] == "REVIEWED"
-    assert head.post(f"{url}/publish").status_code == 403          # managers don't publish
     o = scoring_env.env.org
     _, hr_p2 = as_role("tst.res.hrp2", [("HR_HEAD", [(ScopeType.PLANT, o.plants["P2"], None)])])
-    assert hr_p2.post(f"{url}/publish").status_code == 404         # other plant: not visible
-    published = hr.post(f"{url}/publish").json()
-    assert published["result"]["status"] == "PUBLISHED"
-    assert published["result"]["published_score"] == "4.6"
-
-
-def test_published_scores_never_change(scoring_env, db):
-    head, hr = scoring_env.clients["head"], scoring_env.clients["hr_head"]
-    import_quarter(head, scoring_env, FULL)
-    calculate(scoring_env)
-    head.post(f"/api/kpi/results/{scoring_env.p1_sheet}/review")
-    hr.post(f"/api/kpi/results/{scoring_env.p1_sheet}/publish")
-    data = csv_bytes(quarter_rows({"TKPI-1": [99]}, ("2026-09",)))
-    refused = import_data(head, scoring_env, "preview", data, "2026-09", replace_existing=True)
-    assert any("scores for this sheet are published" in i["message"]
-               for i in refused.json()["issues"])
-    assert calculate(scoring_env, sheet_ids=[scoring_env.p1_sheet])["published"] == 1
-    deviation = head.post("/api/kpi/deviations", json={
-        "sheet_id": scoring_env.p1_sheet, "reason": "Change after publication",
-        "items": [{"kpi_definition_id": scoring_env.env.kpis["profit"].id, "weightage": "100",
-                   "target_value": "100"}]})
-    assert deviation.status_code == 409
-    stored = db.scalars(select(KpiSheetResult).where(
-        KpiSheetResult.sheet_id == scoring_env.p1_sheet)).one()
-    assert stored.published_score == Decimal("4.60") and stored.status == ScoreResultStatus.PUBLISHED
+    assert hr_p2.post(f"{url}/review").status_code == 404           # other plant: not visible
+    assert head.post(f"{url}/review").json()["result"]["status"] == "REVIEWED"
+    # Scores are published only with the whole quarter, after normalization.
+    refused = hr.post(f"{url}/publish")
+    assert refused.status_code == 409 and "whole quarter" in refused.json()["detail"]
+    assert result(scoring_env)["actions"]["can_publish"] is False
 
 
 def test_a_later_matrix_version_does_not_change_frozen_items(scoring_env, as_role, db):
@@ -194,9 +165,12 @@ def test_overrides_need_both_approvals_and_are_voided_by_recalculation(scoring_e
     event = db.scalars(select(AuditEvent).where(AuditEvent.action == "kpi_override.apply")).one()
     assert event.reason == "Exceptional plant commissioning effort"
     assert event.changes["original"] == "4.60" and event.changes["revised"] == "4.75"
-    # Publication uses the approved override.
-    head.post(f"{url}/review")
-    assert hr.post(f"{url}/publish").json()["result"]["published_score"] == "4.75"
+    # The employee's quarterly score uses the approved override.
+    employee = o.employees["001"].id
+    detail = head.get(f"/api/kpi/quarters/{scoring_env.env.q1.id}/employees/{employee}").json()
+    p1 = next(c for c in detail["components"] if c["sheet_id"] == scoring_env.p1_sheet)
+    assert (p1["score"], p1["score_source"]) == ("4.75", "override")
+    _ = hr
 
 
 def test_recalculation_voids_an_applied_override(scoring_env, as_role, db):
@@ -242,22 +216,10 @@ def test_results_are_scope_filtered_and_visible_to_the_employee(scoring_env, as_
     assert {r["sheet"]["id"] for r in rows} == {scoring_env.p2_sheet}
 
 
-def test_audit_failure_rolls_back_publication(scoring_env, db, monkeypatch):
-    head = scoring_env.clients["head"]
-    import_quarter(head, scoring_env, FULL)
+def test_an_employee_sees_their_own_result_only_once_published(scoring_env, as_role):
+    import_quarter(scoring_env.clients["head"], scoring_env, FULL)
     calculate(scoring_env)
-    head.post(f"/api/kpi/results/{scoring_env.p1_sheet}/review")
-    hr_user = scoring_env.users["hr_head"]
-    principal = build_principal(hr_user)
-
-    def failing(*args, **kwargs):
-        raise RuntimeError("audit store unavailable")
-
-    monkeypatch.setattr(kpi_results, "record_event", failing)
-    with pytest.raises(RuntimeError):
-        with transaction(db):
-            kpi_results.publish(db, principal, AuditActor.from_user(hr_user), scoring_env.p1_sheet)
-    stored = db.scalars(select(KpiSheetResult).where(
-        KpiSheetResult.sheet_id == scoring_env.p1_sheet)).one()
-    db.refresh(stored)
-    assert stored.status == ScoreResultStatus.REVIEWED and stored.published_score is None
+    o = scoring_env.env.org
+    _, me = as_role("tst.res.me2", [("EMPLOYEE", [])], employee=o.employees["001"])
+    body = me.get(f"/api/kpi/results/{scoring_env.p1_sheet}").json()
+    assert body["result"] is None and body["items"] == []

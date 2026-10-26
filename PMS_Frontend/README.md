@@ -71,8 +71,20 @@ The e2e database keeps its data between runs, so specs must be repeatable:
 an earlier run published. `e2e/matrix-scoring.spec.ts` creates its own matrix
 and KPI on every run, swaps the KPI into the locked demo sheet through a
 deviation, and imports and calculates October data without publishing a
-final score. No spec starts quarterly scoring or publishes a score, because
-either would freeze demo data for good.
+final score. Neither touches the demo quarters' lifecycle, which would freeze
+demo data for good.
+
+`e2e/quarterly.spec.ts` (Stage L) needs a quarter it can take all the way to
+publication. The e2e server therefore seeds a **fresh quarter for every
+run** (`E2E Q <timestamp>`, April–June 2026, in data collection, with locked
+sheets for five Quality assignments; `seed_run_quarter` in
+`PMS_Backend/tests/e2e_server.py`). The spec imports three months of
+synthetic values designed to give known scores (including a cross-plant
+employee weighted 70/30 and a tie at a group boundary), moves the quarter
+through department review and normalization, places the tied employees,
+has the CHRO approve the cohort and publish, and checks the employee's
+**My KPI sheets**. Earlier run quarters stay in the e2e database; the pages'
+default quarter ignores them because they start before the demo quarters.
 
 ## How it works
 
@@ -83,7 +95,10 @@ src/
   features/       auth, dashboard, plants, departments, employees, reports, account,
                   jd (job descriptions), kpi (library, sheets, upload, deviations),
                   matrix (configurable matrices: list, editor, versions, Excel upload),
-                  scores (monthly data import, quarterly results, overrides)
+                  scores (monthly data import, quarterly results, overrides),
+                  quarterly (quarter overview and steps, employee results and
+                  contribution weights, normalization cohorts, comments and
+                  feedback, My KPI sheets)
   services/       apiClient.ts (the only HTTP client) and one module per API area
   hooks/          useApiQuery (cancellable, race-safe data loading),
                   useAction (one save or sign-off at a time, with its error)
@@ -147,6 +162,14 @@ never decides whether a configuration is valid: **Check the rules** sends the
 unsaved content to the API's rule engine, the same code that validates
 uploads, and shows its report. Range bounds start with no inclusivity
 chosen, so "more than" versus "at least" is always an explicit decision.
+A type with `settings` (normalization policies) also gets a settings editor;
+renaming a group there updates the allowed values of the `group` input, and
+types without Excel templates offer no download or upload.
+
+The quarterly pages (`features/quarterly`) show only what the API returns:
+counts, blockers, distributions and allowed actions all come from the
+overview, employee and cohort responses, so a button appears only when the
+backend would accept the action, and the backend still checks it.
 
 ### Data and figures
 

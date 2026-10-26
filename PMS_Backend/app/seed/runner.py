@@ -52,8 +52,8 @@ from app.models import (
     UserRoleScope,
 )
 from app.seed import demo_data as data
-from app.services import kpi_scoring, matrix_rules, matrix_service
-from app.services.matrix_types import KPI_SCORING
+from app.services import kpi_scoring, matrix_rules, matrix_service, normalization_policy
+from app.services.matrix_types import KPI_SCORING, NORMALIZATION
 
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
@@ -258,6 +258,7 @@ def seed(session: Session, demo_password: str | None = None) -> Counter:
             stats,
         )
     _seed_matrices(session, policies, users, stats)
+    _seed_normalization_policy(session, users, stats)
     kpis = {}
     for k in data.KPI_LIBRARY:
         kpi = upsert(
@@ -337,6 +338,35 @@ def _seed_matrices(session: Session, policies: dict[str, KpiScoringPolicy],
         ))
         session.flush()
         stats[("matrix_versions", "created")] += 1
+
+
+def _seed_normalization_policy(session: Session, users: dict[str, User], stats: Counter) -> None:
+    """The synthetic demo normalization policy; version 1 is created once
+    (PUBLISHED, synthetic approval trail) and never changed afterwards."""
+    spec = data.NORMALIZATION_POLICY
+    matrix = upsert(session, Matrix, {"code": spec["code"]},
+                    {"matrix_type": NORMALIZATION.code, "name": spec["name"],
+                     "description": spec["description"], "attributes": {}, "is_active": True},
+                    stats)
+    if session.scalar(select(MatrixVersion.id).where(MatrixVersion.matrix_id == matrix.id)):
+        stats[("matrix_versions", "unchanged")] += 1
+        return
+    definition = normalization_policy.group_rating_definition(spec["settings"], spec["ratings"])
+    author, approver = users["demo.hrhead"], users["demo.chro"]
+    now = datetime.now().replace(microsecond=0)
+    session.add(MatrixVersion(
+        matrix_id=matrix.id, version_no=1, status=MatrixVersionStatus.PUBLISHED,
+        schema_version=NORMALIZATION.schema_version, definition=definition,
+        definition_hash=matrix_rules.definition_hash(definition),
+        effective_from=data.MATRIX_EFFECTIVE_FROM, change_summary=data.NORMALIZATION_DEMO_NOTE,
+        source=MatrixVersionSource.SEED, created_by_user_id=author.id,
+        submitted_by_user_id=author.id, submitted_at=now, approved_by_user_id=approver.id,
+        approved_at=now, approval_note=data.NORMALIZATION_DEMO_NOTE,
+        published_by_user_id=author.id, published_at=now,
+        scopes=[MatrixVersionScope(plant_id=None, department_id=None)],
+    ))
+    session.flush()
+    stats[("matrix_versions", "created")] += 1
 
 
 def _seed_demo_sheets(session: Session, kpis: dict[str, KpiDefinition], plants: dict[str, Plant],

@@ -8,12 +8,16 @@ from app.models import (
     KpiScoringPolicy,
     KpiSheet,
     KpiSheetStatus,
+    Matrix,
     MatrixVersion,
     MatrixVersionStatus,
+    PmsCycle,
     PmsCycleQuarter,
     User,
 )
 from app.seed.runner import SeedError, demo_password_from_env, seed
+from app.services.matrix_rules import analyse
+from app.services.matrix_types import NORMALIZATION
 
 DEMO_PASSWORD = "synthetic-demo-password"  # test-only value
 
@@ -79,6 +83,17 @@ def test_seeded_policies_are_backed_by_published_matrices(db):
         assert "not an approved company policy" in versions[0].approval_note
 
 
+def test_seeded_normalization_policy_is_synthetic_and_valid(db):
+    seed(db)
+    matrix = db.scalars(select(Matrix).where(Matrix.code == "NRM-DEMO")).one()
+    [version] = db.scalars(select(MatrixVersion).where(MatrixVersion.matrix_id == matrix.id)).all()
+    assert version.status == MatrixVersionStatus.PUBLISHED
+    assert "not an approved company policy" in version.approval_note
+    _, report = analyse(NORMALIZATION, version.definition)
+    assert report.ok
+    assert version.definition["settings"]["groups"][1]["percent"] == "60"
+
+
 def test_seeded_q3_sheets_are_locked_with_frozen_versions(db):
     seed(db)
     sheets = db.scalars(select(KpiSheet).join(KpiSheet.quarter)
@@ -99,3 +114,16 @@ def test_seed_multi_plant_employee_has_one_identity(db):
     ).all()
     assert len(open_assignments) == 2
     assert sum(a.is_primary for a in open_assignments) == 1
+
+
+def test_each_browser_test_run_gets_its_own_complete_quarter(db):
+    from tests.e2e_server import seed_run_quarter
+
+    seed(db)
+    code = seed_run_quarter(db)
+    quarter = db.scalars(select(PmsCycleQuarter).join(PmsCycleQuarter.cycle)
+                         .where(PmsCycle.code == code)).one()
+    assert quarter.status.value == "OPEN" and quarter.end_date.isoformat() == "2026-06-30"
+    sheets = db.scalars(select(KpiSheet).where(KpiSheet.cycle_quarter_id == quarter.id)).all()
+    assert len(sheets) == 5 and {s.status for s in sheets} == {KpiSheetStatus.LOCKED}
+    assert all(len(s.items) == 3 and all(i.matrix_version_id for i in s.items) for s in sheets)

@@ -120,6 +120,19 @@ def _can_write(principal: Principal, sheet: KpiSheet) -> bool:
     return principal.scope_for(Permission.KPI_WRITE).allows_unit(unit.plant_id, unit.department_id)
 
 
+def item_read(i) -> SheetItemRead:
+    return SheetItemRead(
+        id=i.id, kpi=KpiRef.model_validate(i.kpi_definition), weightage=float(i.weightage),
+        target_value=None if i.target_value is None else float(i.target_value), target_note=i.target_note,
+        unit=i.unit, scoring_policy=PolicyRef.model_validate(i.scoring_policy),
+        frozen=i.scoring_snapshot is not None,
+        matrix_version=ItemMatrixVersion(
+            id=i.matrix_version.id, matrix_id=i.matrix_version.matrix_id,
+            matrix_code=i.matrix_version.matrix.code, version_no=i.matrix_version.version_no,
+        ) if i.matrix_version is not None else None,
+        measurement=i.measurement_snapshot)
+
+
 def _sheet(db: Session, principal: Principal, sheet: KpiSheet, warnings: list[str] | None = None) -> SheetRead:
     if warnings is None:
         items = [ItemInput(i.kpi_definition_id, i.weightage, i.target_value, i.target_note, i.unit,
@@ -135,20 +148,13 @@ def _sheet(db: Session, principal: Principal, sheet: KpiSheet, warnings: list[st
         job_description=JDRef(id=sheet.job_description.id, code=sheet.job_description.code,
                               title=sheet.job_description.title) if sheet.job_description else None,
         notes=sheet.notes,
-        items=[SheetItemRead(
-            id=i.id, kpi=KpiRef.model_validate(i.kpi_definition), weightage=float(i.weightage),
-            target_value=None if i.target_value is None else float(i.target_value), target_note=i.target_note,
-            unit=i.unit, scoring_policy=PolicyRef.model_validate(i.scoring_policy),
-            frozen=i.scoring_snapshot is not None,
-            matrix_version=ItemMatrixVersion(
-                id=i.matrix_version.id, matrix_id=i.matrix_version.matrix_id,
-                matrix_code=i.matrix_version.matrix.code, version_no=i.matrix_version.version_no,
-            ) if i.matrix_version is not None else None,
-            measurement=i.measurement_snapshot) for i in sheet.items],
+        items=[item_read(i) for i in sheet.items],
         total=float(kpi_sheets.weight_total([i.weightage for i in sheet.items])),
         warnings=warnings, published_at=sheet.published_at, locked_at=sheet.locked_at,
         can_edit=writable and not started and sheet.status == KpiSheetStatus.DRAFT,
-        can_request_deviation=writable and started and pending is None,
+        # Deviations change data, so only while the quarter collects data.
+        can_request_deviation=writable and sheet.quarter.status == QuarterStatus.OPEN
+        and pending is None,
         pending_deviation_id=pending,
     )
 

@@ -277,7 +277,10 @@ export type KpiDirection =
 export type KpiAggregation = 'SUM' | 'AVERAGE' | 'LAST' | 'MIN' | 'MAX'
 export type ReportingFrequency = 'MONTHLY' | 'QUARTERLY'
 export type KpiSheetStatus = 'DRAFT' | 'PUBLISHED' | 'LOCKED'
-export type QuarterStatus = 'DRAFT' | 'OPEN' | 'CLOSED'
+/** DRAFT: KPI setup. OPEN: data collection. Then department review, normalization,
+ *  ready, and published (locked). CLOSED: historic. */
+export type QuarterStatus =
+        'DRAFT' | 'OPEN' | 'DEPARTMENT_REVIEW' | 'NORMALIZATION' | 'READY' | 'PUBLISHED' | 'CLOSED'
 export type DeviationStatus = 'PENDING' | 'APPLIED' | 'REJECTED'
 
 export interface Band {
@@ -604,6 +607,10 @@ export interface MatrixTypeMeta {
         policy_note: string | null
         data_type_labels: Record<MatrixDataType, string>
         source_labels: Record<MatrixSource, string>
+        /** False: configured in the portal only (no Excel template). */
+        excel_templates: boolean
+        /** Type-specific settings (normalization policies), else null. */
+        settings: MatrixSettingsOptions | null
 }
 
 /** Numbers and dates: each given bound states whether it is included. */
@@ -639,6 +646,8 @@ export interface MatrixDefinition {
         rules: MatrixRule[]
         no_match: MatrixNoMatch | null
         test_cases: MatrixTestCase[]
+        /** Normalization policies only. */
+        settings?: NormalizationSettings | null
 }
 
 /** A validation problem; `path` points into the definition, e.g. "rules[1].conditions.x". */
@@ -1023,4 +1032,215 @@ export interface CalculateResult {
         unchanged: number
         published: number
         complete: number
+}
+
+// --- Quarterly review, normalization and publication (Stage L) ------------------------------
+
+export interface QuarterOverview {
+        quarter: Quarter
+        next_status: QuarterStatus | null
+        previous_status: QuarterStatus | null
+        sheets: {
+                locked: number
+                calculated: number
+                complete: number
+                stale: number
+                reviewed: number
+                pending_overrides: number
+                published: number
+        }
+        employees: {
+                total: number
+                ready: number
+                multi_assignment: number
+                weights_needed: number
+        }
+        cohorts: { total: number; approved: number; unresolved: number }
+        /** Sheets never published before scoring started: not scored this quarter. */
+        unscorable_sheets: number
+        /** What blocks the next step, company-wide (for those who take it). */
+        blockers: string[]
+        feedback_enabled: boolean
+        published_at: string | null
+        published_by: UserRef | null
+        actions: { can_advance: boolean; can_return: boolean; can_publish: boolean }
+}
+
+export type NormalizationPlacement =
+        | 'AUTO'
+        | 'TIE_RULE'
+        | 'TIE_RESOLVED'
+        | 'SMALL_COHORT_DEFAULT'
+        | 'SMALL_COHORT_RESOLVED'
+        | 'NEEDS_RESOLUTION'
+        | 'NOT_ELIGIBLE'
+export type NormalizationRunStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED' | 'DISCARDED'
+export type CohortLevel = 'COMPANY' | 'PLANT' | 'DEPARTMENT' | 'PLANT_DEPARTMENT'
+
+export interface EmployeeComponent {
+        assignment_id: number
+        sheet_id: number
+        plant: PlantRef
+        department: DepartmentRef
+        is_primary: boolean
+        result_status: ScoreResultStatus | null
+        score: string | null
+        /** final | override */
+        score_source: string | null
+        weight: string | null
+        contribution: string | null
+        problems: string[]
+        can_open_sheet: boolean
+}
+
+export interface NormalizationOutcome {
+        run_id: number
+        cohort_label: string
+        run_status: NormalizationRunStatus
+        rank: number | null
+        group_key: string | null
+        group_label: string | null
+        placement: NormalizationPlacement | null
+        placement_reason: string | null
+        placed_by: UserRef | null
+        normalized_rating: string | null
+        rating_explanation: Record<string, unknown> | null
+}
+
+export interface EmployeeResult {
+        employee: EmployeeRef
+        quarter_id: number
+        /** LIVE before normalization; DRAFT frozen for normalization; PUBLISHED final. */
+        status: 'LIVE' | 'DRAFT' | 'PUBLISHED'
+        home_plant: PlantRef | null
+        home_department: DepartmentRef | null
+        /** SINGLE | CONFIGURED | MISSING | INVALID */
+        weights_source: string
+        calculated_score: string | null
+        final_score: string | null
+        ready: boolean
+        issues: string[]
+        components: EmployeeComponent[]
+        normalization: NormalizationOutcome | null
+        can_set_weights: boolean
+}
+
+export interface GroupDistribution {
+        key: string
+        label: string
+        target_percent: string
+        target_count: number
+        actual_count: number
+        actual_percent: string | null
+}
+
+export interface CohortSummary {
+        id: number
+        status: NormalizationRunStatus
+        cohort_label: string
+        cohort_level: CohortLevel
+        policy: {
+                matrix_id: number
+                code: string
+                name: string
+                version_id: number
+                version_no: number
+        }
+        population: number
+        eligible: number
+        small_cohort: boolean
+        distribution: GroupDistribution[]
+        matches_targets: boolean
+        unresolved: number
+        rating_errors: number
+        exceptions: number
+        approved_by: UserRef | null
+        approved_at: string | null
+}
+
+export interface CohortMember {
+        employee: EmployeeRef
+        home_plant: PlantRef
+        home_department: DepartmentRef
+        final_score: string
+        calculated_score: string
+        rank: number | null
+        group_key: string | null
+        group_label: string | null
+        placement: NormalizationPlacement | null
+        options: string[] | null
+        placement_reason: string | null
+        placed_by: UserRef | null
+        normalized_rating: string | null
+        rating_explanation: Record<string, unknown> | null
+}
+
+export interface CohortException {
+        type: string
+        message: string
+        employee_ids: number[]
+        groups: string[]
+}
+
+export interface Cohort extends CohortSummary {
+        quarter: Quarter
+        settings: NormalizationSettings | null
+        policy_problem: string | null
+        exception_list: CohortException[]
+        members: CohortMember[]
+        approval_note: string | null
+        computed_at: string | null
+        actions: { can_place: boolean; can_approve: boolean; can_reopen: boolean }
+}
+
+export type SheetCommentKind = 'REVIEW_COMMENT' | 'FEEDBACK'
+
+export interface SheetComment {
+        id: number
+        kind: SheetCommentKind
+        body: string
+        author: UserRef | null
+        created_at: string
+}
+
+export interface OwnSheet {
+        id: number
+        status: KpiSheetStatus
+        quarter: Quarter
+        assignment: AssignmentBrief
+        items: SheetItem[]
+        total: number
+        published_score: string | null
+        published_at: string | null
+        outcome: {
+                final_score: string
+                group_label: string | null
+                normalized_rating: string | null
+                published_at: string | null
+        } | null
+        feedback: SheetComment[]
+}
+
+/** Settings of a NORMALIZATION policy version (see docs/matrix-framework.md). */
+export interface NormalizationSettings {
+        cohort_level: CohortLevel | null
+        groups: { key: string; label: string; percent: string; remainder: boolean }[]
+        size_rounding: string | null
+        rank_by: string | null
+        ties: string | null
+        min_cohort_size: number | null
+        small_cohort: string | null
+        small_cohort_group: string | null
+        eligible_designations: string[]
+}
+
+/** The choices a type's settings offer, with labels (normalization only). */
+export interface MatrixSettingsOptions {
+        kind: 'normalization'
+        cohort_levels: Record<string, string>
+        size_rounding: Record<string, string>
+        rank_by: Record<string, string>
+        ties: Record<string, string>
+        small_cohort: Record<string, string>
+        max_groups: number
 }

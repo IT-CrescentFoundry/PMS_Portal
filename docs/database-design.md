@@ -201,7 +201,7 @@ Rules (`app/services/audit.py`):
 
 ## JD and KPI management (Stage J)
 
-Evidence: [business-requirements/stage-j-findings.md](business-requirements/stage-j-findings.md).
+Evidence: [JD_KPI_Scoring.md](JD_KPI_Scoring.md).
 
 Decisions confirmed by the business (2026-10-14):
 
@@ -429,11 +429,128 @@ drops the new tables and columns; it is never run without approval.
 | `score:publish` | HR_HEAD, CHRO | scoped |
 | Override approvals | `deviation:approve_hr`, `deviation:approve_plant` | scoped |
 
+## Quarterly review, normalization and publication (Stage L)
+
+Decisions confirmed by the business (2026-10-26):
+
+- KPI scoring is configured per KPI through its approved matrix. A genuine
+  zero-tolerance KPI may score 5 for no incidents and 0 for one or more when
+  that rule is approved (closes D1). No global direction is imposed; each
+  KPI's direction and matrix are explicit (closes D2).
+- A KPI score of 0 and the 1–5 performance-rating scale are separate
+  concepts. A rating comes only from an approved, configured mapping
+  (closes D5).
+- The manager's/employee's score is calculated from weighted KPI
+  contributions; a manual override is a controlled deviation (closes the
+  "manager's final score" question).
+- Quarterly feedback is optional and never blocks publication. Quarterly
+  locking is company-wide, by a global role.
+- Cross-plant employees keep one identity: assignment scores stay separate,
+  and an employee is counted once in a normalization cohort.
+
+### Quarter lifecycle
+
+`pms_cycle_quarters.status` gains four values; the existing ones keep their
+meaning:
+
+| Status | Meaning | Data and scores |
+|---|---|---|
+| `DRAFT` | KPI setup | sheets editable |
+| `OPEN` | Scoring started (sheets locked): **data collection** | imports, calculation, deviations, overrides, department review |
+| `DEPARTMENT_REVIEW` | Data collection closed; departments review | review, overrides, comments, contribution weights; data frozen |
+| `NORMALIZATION` | Employee scores consolidated and normalized | cohort placement and approval only |
+| `READY` | Every cohort approved | publication only |
+| `PUBLISHED` | Published and locked | nothing changes |
+| `CLOSED` | Historic quarter (demo seed) | read-only |
+
+Forward steps need a GLOBAL `quarter:start` role (HR Head, CHRO, Admin) and
+pass explicit gates; each forward step can be undone one step back with a
+recorded reason. Publication needs GLOBAL `score:publish` (HR Head, CHRO).
+
+| Step | Gate (company-wide) |
+|---|---|
+| OPEN → DEPARTMENT_REVIEW | every locked sheet has a current, complete calculation |
+| DEPARTMENT_REVIEW → NORMALIZATION | every result reviewed, current, no pending override; every employee's score can be consolidated (contribution weights where needed); every eligible employee is covered by an approved normalization policy. Employee scores are then frozen into `employee_quarter_results` and the cohorts computed. |
+| NORMALIZATION → READY | every cohort approved |
+| READY → PUBLISHED | one transaction: every sheet result, employee result and cohort is published, the quarter records who published it and when |
+
+**Missing data (recommended default, applied consistently).** Every KPI
+needs a value for every month in which the assignment was active (one value
+for a quarterly KPI). Missing data is never treated as zero: the result stays
+incomplete and blocks the quarter at the first gate, with the missing months
+listed. Corrections after data collection closes need the quarter moved back
+to data collection (global role, reason recorded). After publication nothing
+changes; deviations, imports and recalculation are refused.
+
+### Employee consolidation
+
+- An employee's quarterly score uses the assignments that have a locked KPI
+  sheet in the quarter. Each assignment contributes its final score (or its
+  approved override).
+- One scored assignment: it contributes 100 %. Several: **explicit
+  contribution weights** for exactly those assignments, each above 0 and
+  together exactly 100.00 % (HR Head or CHRO covering all of them). Never an
+  unweighted average; missing or invalid weights block the employee.
+- Exact sum, then rounded half-up to 2 decimals.
+- **Attribution:** the primary assignment active at the end of the quarter
+  (else the latest primary that overlaps it). No primary is a blocker.
+
+### Normalization policy
+
+A new matrix type, `NORMALIZATION`, so policies get versioning, CHRO
+approval, effective dates, applicability and history from Stage K. A version
+holds `settings` (validated by the rule engine) and a decision table mapping
+a group (and optionally the score) to a normalized rating:
+
+- `cohort_level`: COMPANY, PLANT, DEPARTMENT (consolidated across plants) or
+  PLANT_DEPARTMENT, applied to each employee's attribution unit.
+- `groups`: ordered best first, each with a target percentage; exactly one
+  takes the remainder; percentages total 100 (20/60/20 is the intended
+  default, but nothing is fixed).
+- `size_rounding` for the non-remainder groups: NEAREST (half-up), DOWN, UP.
+- `rank_by`: FINAL_SCORE (2 decimals) or EXACT_SCORE.
+- `ties` at a group boundary: REQUIRE_RESOLUTION, HIGHER_GROUP (all tied
+  employees go to the better group) or LOWER_GROUP. Ties are never split
+  silently.
+- `min_cohort_size` and `small_cohort`: REQUIRE_RESOLUTION, or DEFAULT_GROUP
+  with a named group.
+- `eligible_designations`: designation codes (empty: everyone).
+
+Only one normalization policy may apply to a unit and date (enforced at
+publication, as for every applicability-selected type). The version in force
+on the quarter's start date for the employee's attribution unit applies.
+
+### Tables (migration in this stage, additive only)
+
+| Table / change | Purpose | Key rules |
+|---|---|---|
+| `pms_cycle_quarters.status` | ENUM gains `DEPARTMENT_REVIEW`, `NORMALIZATION`, `READY`, `PUBLISHED` | existing values unchanged |
+| `pms_cycle_quarters` + `published_at`, `published_by_user_id` | Who published the quarter and when | nullable |
+| `assignment_score_weights` | Contribution weight of one assignment to its employee's quarterly score | unique (quarter, assignment); CHECK 0 < weight ≤ 100 |
+| `employee_quarter_results` | Frozen employee score per quarter: components (assignment, sheet, score used, weight, contribution), exact and final score, attribution unit, inputs hash; normalization outcome: cohort, rank, group, how it was placed (automatic, tie resolution, small-cohort rule or resolution) with reason and person, normalized rating and the rule used; publication | unique (quarter, employee) |
+| `normalization_runs` | One cohort per quarter: policy version, level and unit, population, target and actual group counts, exceptions, inputs hash, computation, approval (note) and publication | unique (quarter, cohort key); DRAFT → APPROVED → PUBLISHED, or DISCARDED |
+| `kpi_sheet_comments` | Review comments and optional feedback on a sheet (append-only) | never required for any step |
+
+Migration effects: new tables, nullable columns and enum values only. No row
+is changed and nothing is dropped. `downgrade()` drops the new objects and
+narrows the ENUM; it would fail if a quarter uses a new status, and is never
+run without approval.
+
+### Permissions
+
+| Action | Who |
+|---|---|
+| Quarter steps forward and back | GLOBAL `quarter:start` (Admin, HR Head, CHRO) |
+| Publish the quarter | GLOBAL `score:publish` (HR Head, CHRO) |
+| Contribution weights | `score:publish` covering every scored assignment of the employee |
+| Cohort placements (ties, small cohorts), approval | `score:publish` covering the cohort; nobody places themselves; the approver may not have placed any member and may not be a member of the cohort |
+| Review | `kpi:write` in scope, never for one's own sheet (someone else with authority over the unit reviews it) |
+| Comments, feedback | `kpi:write` in scope; reading follows the sheet |
+| Employee (consolidated) results | org readers covering the employee's attribution unit or every component |
+| Own sheets, published outcome and feedback | the employee (`self:read`) |
+
 ## Deferred, by design
 
-- **Normalization policy** (configurable 20–60–20 bands, eligible population,
-  minimum pool size, exceptions) will be added as a per-cycle configuration
-  table when quarterly normalization is built. It will reference `pms_cycles`.
 - Grades and salary bands (needed for compa-ratio), JDs, KRAs, monthly data,
   scores and budgets come in later stages.
 - Role-assignment history and audit logging. `user_roles` currently represents

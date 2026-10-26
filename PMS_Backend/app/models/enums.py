@@ -20,11 +20,17 @@ class CycleStatus(StrEnum):
 
 
 class QuarterStatus(StrEnum):
-    """Lifecycle of a quarter within a PMS cycle."""
+    """Lifecycle of a quarter within a PMS cycle (see docs/database-design.md,
+    Stage L). Every status after DRAFT means scoring has started and KPI
+    sheets are locked."""
 
-    DRAFT = "DRAFT"
-    OPEN = "OPEN"
-    CLOSED = "CLOSED"
+    DRAFT = "DRAFT"                          # KPI setup
+    OPEN = "OPEN"                            # scoring started: data collection
+    CLOSED = "CLOSED"                        # historic (read-only)
+    DEPARTMENT_REVIEW = "DEPARTMENT_REVIEW"  # data frozen; departments review
+    NORMALIZATION = "NORMALIZATION"          # employee scores frozen; cohorts placed
+    READY = "READY"                          # every cohort approved
+    PUBLISHED = "PUBLISHED"                  # published and locked
 
 
 class JDVersionStatus(StrEnum):
@@ -138,3 +144,43 @@ class ScopeType(StrEnum):
     PLANT = "PLANT"
     DEPARTMENT = "DEPARTMENT"
     PLANT_DEPARTMENT = "PLANT_DEPARTMENT"
+
+
+class EmployeeResultStatus(StrEnum):
+    """An employee's consolidated quarterly score."""
+
+    DRAFT = "DRAFT"          # frozen for normalization; recomputed if the quarter steps back
+    PUBLISHED = "PUBLISHED"  # final and immutable
+
+
+class NormalizationRunStatus(StrEnum):
+    """One normalization cohort of a quarter."""
+
+    DRAFT = "DRAFT"          # computed; placements may be needed
+    APPROVED = "APPROVED"    # checked by an HR Head or the CHRO
+    PUBLISHED = "PUBLISHED"  # published with the quarter
+    DISCARDED = "DISCARDED"  # the cohort no longer exists after a recomputation
+
+
+class NormalizationPlacement(StrEnum):
+    """How an employee came to be in a normalization group."""
+
+    AUTO = "AUTO"                                      # ranked into the group
+    TIE_RULE = "TIE_RULE"                              # tied at a boundary; the policy's tie rule
+    TIE_RESOLVED = "TIE_RESOLVED"                      # tied; placed by an authorized reviewer
+    SMALL_COHORT_DEFAULT = "SMALL_COHORT_DEFAULT"      # small cohort; the policy's default group
+    SMALL_COHORT_RESOLVED = "SMALL_COHORT_RESOLVED"    # small cohort; placed by a reviewer
+    NEEDS_RESOLUTION = "NEEDS_RESOLUTION"              # waiting for a reviewer
+    NOT_ELIGIBLE = "NOT_ELIGIBLE"                      # outside the policy's eligible population
+
+
+class CohortLevel(StrEnum):
+    COMPANY = "COMPANY"
+    PLANT = "PLANT"
+    DEPARTMENT = "DEPARTMENT"              # one department across all plants
+    PLANT_DEPARTMENT = "PLANT_DEPARTMENT"  # one department at one plant
+
+
+class SheetCommentKind(StrEnum):
+    REVIEW_COMMENT = "REVIEW_COMMENT"  # between reviewers
+    FEEDBACK = "FEEDBACK"              # for the employee; always optional

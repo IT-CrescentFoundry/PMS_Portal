@@ -204,6 +204,36 @@ MATRIX_EFFECTIVE_FROM = date(2026, 4, 1)  # the demo cycle's start
 MATRIX_DEMO_NOTE = ("Synthetic demo approval (seed data reproducing the sample workbook matrix); "
                     "not an approved company policy.")
 
+# Stage L: a SYNTHETIC normalization policy so the demo can show quarterly
+# normalization. Every value is demo configuration, not company policy:
+# departments are compared across plants, 20/60/20 with ties placed by a
+# reviewer, cohorts below 4 employees all in the middle group, and an example
+# rating per group.
+NORMALIZATION_POLICY = {
+    "code": "NRM-DEMO",
+    "name": "Demo 20-60-20 normalization",
+    "description": ("Synthetic demo configuration (each department compared across plants); "
+                    "not an approved company policy."),
+    "settings": {
+        "cohort_level": "DEPARTMENT",
+        "groups": [
+            {"key": "TOP", "label": "Top 20%", "percent": "20", "remainder": False},
+            {"key": "MIDDLE", "label": "Middle 60%", "percent": "60", "remainder": True},
+            {"key": "BOTTOM", "label": "Bottom 20%", "percent": "20", "remainder": False},
+        ],
+        "size_rounding": "NEAREST",
+        "rank_by": "FINAL_SCORE",
+        "ties": "REQUIRE_RESOLUTION",
+        "min_cohort_size": 4,
+        "small_cohort": "DEFAULT_GROUP",
+        "small_cohort_group": "MIDDLE",
+        "eligible_designations": [],
+    },
+    "ratings": {"TOP": "5", "MIDDLE": "3", "BOTTOM": "1"},
+}
+NORMALIZATION_DEMO_NOTE = ("Synthetic demo approval of an example normalization policy; not an "
+                           "approved company policy.")
+
 _SUM, _AVG = KpiAggregation.SUM, KpiAggregation.AVERAGE
 _MONTHLY = ReportingFrequency.MONTHLY
 

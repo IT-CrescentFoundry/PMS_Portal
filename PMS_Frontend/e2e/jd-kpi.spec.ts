@@ -78,7 +78,7 @@ test('a Department Head sets and publishes a quarterly KPI sheet totalling 100%'
         await signIn(page, 'demo.quality.head')
         await page
                 .getByRole('navigation', { name: 'Main' })
-                .getByRole('link', { name: 'KPI sheets' })
+                .getByRole('link', { name: 'KPI sheets', exact: true })
                 .click()
         await expect(
                 page.getByRole('heading', { level: 1, name: 'Quarterly KPI sheets' }),

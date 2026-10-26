@@ -349,6 +349,8 @@ class Definition:
     test_cases: list[TestCaseDef]
     # False when any part failed to parse; such a definition is never evaluated.
     evaluable: bool = True
+    # Type-specific settings, parsed by the type's settings_hook (or None).
+    settings: Any = None
 
     @property
     def inputs(self) -> list[FieldDef]:
@@ -1032,6 +1034,11 @@ def analyse(spec: MatrixTypeSpec, raw: Mapping[str, Any] | None,
     report = Report()
     definition = parse_definition(spec, raw, report)
     rules, inputs = definition.rules, definition.inputs
+    raw_settings = raw.get("settings") if isinstance(raw, Mapping) else None
+    if spec.settings_hook is not None:
+        definition.settings = spec.settings_hook(raw_settings, definition, report)
+    elif raw_settings not in (None, {}):
+        report.error("settings", "This matrix type has no settings.")
 
     # Overlaps: at most one rule may match any input.
     for i, a in enumerate(rules):
@@ -1215,7 +1222,10 @@ def migrate_definition(spec: MatrixTypeSpec, raw: Mapping[str, Any],
 
 
 def new_definition(spec: MatrixTypeSpec) -> dict[str, Any]:
-    """Skeleton for a new draft: the type's fixed outputs, nothing else."""
+    """Skeleton for a new draft: the type's own starting content, else its
+    fixed outputs and nothing else."""
+    if spec.initial_definition is not None:
+        return spec.initial_definition()
     return {"fields": [f.as_definition() for f in spec.outputs], "rules": [],
             "no_match": None, "test_cases": []}
 

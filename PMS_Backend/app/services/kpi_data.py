@@ -59,7 +59,6 @@ from app.models import (
     MatrixVersion,
     PlantDepartment,
     PmsCycleQuarter,
-    QuarterStatus,
     ScoreResultStatus,
     User,
 )
@@ -68,7 +67,7 @@ from app.services import matrix_rules as rules
 from app.services import matrix_service
 from app.services.audit import AuditActor, record_event
 from app.services.errors import Issue, PermissionDeniedError, ValidationFailedError
-from app.services.kpi_sheets import get_quarter
+from app.services.kpi_sheets import COLLECTION_STATUSES, QUARTER_LABELS, get_quarter
 from app.services.matrix_types import ACTUAL_SOURCES, DataType, Source
 
 MAX_BYTES = 2_000_000
@@ -383,8 +382,10 @@ def check_import(db: Session, principal: Principal, *, quarter_id: int, period: 
         raise PermissionDeniedError("You cannot import KPI data.")
     quarter = get_quarter(db, quarter_id)
     month = parse_period(period)
-    if quarter.status == QuarterStatus.CLOSED:
-        raise ValidationFailedError([Issue(f"{quarter.name} is closed.", "quarter_id")])
+    if quarter.status not in COLLECTION_STATUSES:
+        raise ValidationFailedError([Issue(
+            f"Data collection for {quarter.name} is closed ({QUARTER_LABELS[quarter.status]}); "
+            "a correction needs the quarter returned to data collection by HR.", "quarter_id")])
     if month not in clock.months_between(quarter.start_date, quarter.end_date):
         raise ValidationFailedError([Issue(f"{month:%Y-%m} is not a month of {quarter.name}.",
                                            "period")])

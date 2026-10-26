@@ -48,6 +48,7 @@ import {
         VERSION_SOURCE,
 } from './matrixLabels'
 import { RuleSummaryTable } from './RuleSummaryTable'
+import { SettingsSummary } from './SettingsSummary'
 import { InputValues } from './TestCasesEditor'
 
 /** /matrices/:matrixId/versions/:versionId */
@@ -196,10 +197,18 @@ function VersionView({
                                         </>
                                 }
                                 actions={
-                                        <Button isLoading={download.busy} onClick={handleDownload}>
-                                                <Download aria-hidden="true" className="size-4" />
-                                                Download as Excel
-                                        </Button>
+                                        meta?.excel_templates === false ? undefined : (
+                                                <Button
+                                                        isLoading={download.busy}
+                                                        onClick={handleDownload}
+                                                >
+                                                        <Download
+                                                                aria-hidden="true"
+                                                                className="size-4"
+                                                        />
+                                                        Download as Excel
+                                                </Button>
+                                        )
                                 }
                         />
                         <div className="space-y-4">
@@ -500,6 +509,10 @@ function VersionView({
                                                 )}
                                         </dl>
                                 </section>
+
+                                {version.definition.settings && (
+                                        <SettingsSummary settings={version.definition.settings} />
+                                )}
 
                                 <section aria-labelledby="rules-heading" className="space-y-2">
                                         <h2

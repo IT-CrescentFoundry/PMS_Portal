@@ -162,6 +162,8 @@ export const kpiScoringType: MatrixTypeMeta = {
         policy_note: null,
         data_type_labels: DATA_TYPE_LABELS,
         source_labels: SOURCE_LABELS,
+        excel_templates: true,
+        settings: null,
 }
 
 export const incrementType: MatrixTypeMeta = {

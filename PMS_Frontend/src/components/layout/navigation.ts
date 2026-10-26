@@ -1,7 +1,10 @@
 import {
         Building2,
         Calculator,
+        CalendarCheck,
         ChartColumn,
+        ChartNoAxesColumn,
+        ClipboardList,
         Factory,
         FileSpreadsheet,
         FileText,
@@ -14,6 +17,7 @@ import {
         Upload,
         UserRound,
         Users,
+        UsersRound,
         type LucideIcon,
 } from 'lucide-react'
 import {
@@ -122,7 +126,9 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                                 icon: GitPullRequestArrow,
                         })
                 }
-                const scoring: NavItem[] = []
+                const scoring: NavItem[] = [
+                        { label: 'Quarter overview', to: '/scores/quarter', icon: CalendarCheck },
+                ]
                 if (canReadMatrices(user)) {
                         scoring.push({ label: 'Matrices', to: '/matrices', icon: Grid3x3 })
                 }
@@ -133,7 +139,15 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                                 icon: Upload,
                         })
                 }
-                scoring.push({ label: 'KPI results', to: '/scores/results', icon: Calculator })
+                scoring.push(
+                        { label: 'KPI results', to: '/scores/results', icon: Calculator },
+                        { label: 'Employee results', to: '/scores/employees', icon: UsersRound },
+                        {
+                                label: 'Normalization',
+                                to: '/scores/normalization',
+                                icon: ChartNoAxesColumn,
+                        },
+                )
                 if (
                         canWriteKpi(user) ||
                         canApproveDeviationAsHR(user) ||
@@ -161,6 +175,9 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                         end: true,
                 },
         ]
+        if (user.employee && canReadOwnRecord(user)) {
+                account.push({ label: 'My KPI sheets', to: '/my/kpi-sheets', icon: ClipboardList })
+        }
         if (user.employee && canReadOwnRecord(user) && !canReadOrganization(user)) {
                 account.push({
                         label: 'My employee record',
@@ -187,6 +204,11 @@ const SECTION_TITLES: [prefix: string, title: string][] = [
         ['/scores/data', 'Scoring · Monthly KPI data'],
         ['/scores/results', 'Scoring · KPI results'],
         ['/scores/overrides', 'Scoring · Score overrides'],
+        ['/scores/quarter', 'Scoring · Quarter overview'],
+        ['/scores/employees', 'Scoring · Employee results'],
+        ['/scores/quarters', 'Scoring · Employee results'],
+        ['/scores/normalization', 'Scoring · Normalization'],
+        ['/my/kpi-sheets', 'Account · My KPI sheets'],
         ['/profile', 'Account · My profile'],
 ]
 

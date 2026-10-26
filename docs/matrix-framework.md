@@ -134,7 +134,8 @@ DRAFT --submit--> SUBMITTED --approve (CHRO)--> APPROVED --publish--> PUBLISHED 
   employee and assignment identification, duplicates, units, months, scope,
   values already stored) → preview → confirm (all or nothing, with an import
   record: file name, size, SHA-256, who and when; the file itself is not
-  stored) → calculate → review → publish. Replacing a stored value needs an
+  stored) → calculate → department review → publication with the whole
+  quarter (Stage L). Replacing a stored value needs an
   explicit confirmation. Source values, calculated scores, reviewed scores
   and published scores are kept apart.
 - **Calculation** (`app/services/kpi_results.py`): monthly values are
@@ -145,10 +146,50 @@ DRAFT --submit--> SUBMITTED --approve (CHRO)--> APPROVED --publish--> PUBLISHED 
   quarterly actual, inputs, matrix version, rule, score, contribution) is
   stored with the result.
 - **Review and publication:** a KPI writer reviews a complete, current
-  result; an HR Head or the CHRO publishes it, after which it is final.
+  result (never their own). Since Stage L a result is published only with
+  its whole quarter, after department review and normalization, by an HR
+  Head or the CHRO with company-wide scope; it is then final.
 - **Manual override** is a separate deviation: a reason, then HR Head and
   Plant Head approval (two different people, neither the requester). The
   calculated score is kept; new data voids a pending override.
+
+## Normalization policies (Stage L)
+
+`NORMALIZATION` (`NRM-…`, `matrix:read`) reuses the framework for versioning,
+CHRO approval, effective dates, applicability (`APPLICABILITY` selection: at
+most one published policy per unit and date) and hash-verified history. A
+version has, besides its decision table, a `settings` object validated by the
+type's `settings_hook` (`app/services/normalization_policy.py`):
+
+| Setting | Values |
+|---|---|
+| `cohort_level` | COMPANY, PLANT, DEPARTMENT (one department across plants), PLANT_DEPARTMENT |
+| `groups` | 2–7 groups, best first: `key`, `label`, target `percent` (≤ 2 decimals, total 100); exactly one takes the remainder |
+| `size_rounding` | NEAREST (half up), DOWN, UP, for the groups other than the remainder |
+| `rank_by` | FINAL_SCORE (2 decimals) or EXACT_SCORE |
+| `ties` | REQUIRE_RESOLUTION (a reviewer places each tied employee, with a reason), HIGHER_GROUP, LOWER_GROUP; never split silently |
+| `min_cohort_size`, `small_cohort`, `small_cohort_group` | below the minimum: REQUIRE_RESOLUTION, or DEFAULT_GROUP with a named group |
+| `eligible_designations` | designation codes; empty means everyone |
+
+The decision table maps the standard input `group` (and optionally `score`)
+to the output `rating`. Its `group` allowed values must equal the settings'
+group keys, and every group needs a rule (or a default). This is how a group
+becomes a 1–5 rating: through an approved, configured table, never a fixed
+mapping in code.
+
+Normalization policies are configured **in the portal only** (the type has
+`excel_templates = False`: no template download or upload). A new draft
+starts with a 20/60/20 split and every other setting unchosen. The demo seed
+adds `NRM-DEMO`, labelled as synthetic demo configuration (department
+cohorts, ties placed by a reviewer, cohorts below 4 in the middle group,
+example ratings 5/3/1); it is not company policy.
+
+When a quarter enters normalization, `app/services/normalization.py`
+resolves the policy for each employee's attribution unit on the quarter's
+start date, freezes its definition hash into the cohort and verifies it again
+at approval and publication. Placement, approval and the quarter lifecycle
+are described in
+[database-design.md](database-design.md#quarterly-review-normalization-and-publication-stage-l).
 
 ## Excel templates
 
@@ -184,7 +225,10 @@ templates, upload parsing, previews and the monthly import columns pick it
 up from `/api/matrix-types`. Existing versions keep their own field list.
 
 **Add a matrix type.** Add a `MatrixTypeSpec` (unique `code` and
-`code_prefix`, `read_permission`, `selection`, outputs) to `REGISTRY`. Until
+`code_prefix`, `read_permission`, `selection`, outputs) to `REGISTRY`.
+Optional: `settings_hook` (validates a type-specific `settings` object),
+`initial_definition` (content of a new draft) and `excel_templates = False`
+(portal-only types, such as normalization policies). Until
 its business values are approved, give it a `policy_note` beginning
 "Awaiting approved configuration" and do not seed any values. Then wire the
 module that will evaluate it (resolve with `matrix_service.resolve`, evaluate

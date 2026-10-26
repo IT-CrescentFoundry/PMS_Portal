@@ -37,6 +37,7 @@ import { InvalidLink } from '../common/InvalidLink'
 import { CheckReport } from './CheckReport'
 import { MatrixStatusBadge } from './controls'
 import { FieldsEditor } from './FieldsEditor'
+import { SettingsEditor } from './SettingsEditor'
 import {
         definitionFromDraft,
         draftFromDefinition,
@@ -314,6 +315,16 @@ function MatrixEditor({
                                                 }
                                         />
                                 </Section>
+
+                                {meta.settings && draft.settings && (
+                                        <Section id="policy-heading" title="Normalization settings">
+                                                <SettingsEditor
+                                                        options={meta.settings}
+                                                        state={draft}
+                                                        onChange={change}
+                                                />
+                                        </Section>
+                                )}
 
                                 <Section id="fields-heading" title="2. Fields">
                                         <FieldsEditor meta={meta} state={draft} onChange={change} />

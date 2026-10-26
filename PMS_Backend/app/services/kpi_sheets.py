@@ -299,6 +299,36 @@ def _require_quarter_open_for_config(quarter: PmsCycleQuarter) -> None:
         )
 
 
+# Quarter phases (Stage L): what may still change in each status.
+QUARTER_LABELS = {
+    QuarterStatus.DRAFT: "KPI setup",
+    QuarterStatus.OPEN: "data collection",
+    QuarterStatus.DEPARTMENT_REVIEW: "department review",
+    QuarterStatus.NORMALIZATION: "normalization",
+    QuarterStatus.READY: "ready for publication",
+    QuarterStatus.PUBLISHED: "published and locked",
+    QuarterStatus.CLOSED: "closed",
+}
+# Monthly data, calculation (sheets published or locked).
+COLLECTION_STATUSES = (QuarterStatus.DRAFT, QuarterStatus.OPEN)
+# Department review, score overrides, contribution weights, comments.
+REVIEW_STATUSES = (QuarterStatus.OPEN, QuarterStatus.DEPARTMENT_REVIEW)
+
+
+def require_collection(quarter: PmsCycleQuarter) -> None:
+    if quarter.status not in COLLECTION_STATUSES:
+        raise ConflictError(
+            f"Data collection for {quarter.name} is closed ({QUARTER_LABELS[quarter.status]}). "
+            "A correction needs the quarter returned to data collection by HR.")
+
+
+def require_review(quarter: PmsCycleQuarter) -> None:
+    if quarter.status not in REVIEW_STATUSES:
+        raise ConflictError(
+            f"{quarter.name} is not open for department review "
+            f"({QUARTER_LABELS[quarter.status]}).")
+
+
 def _require_scores_unpublished(db: Session, sheet: KpiSheet) -> None:
     published = db.scalar(select(KpiSheetResult.id).where(
         KpiSheetResult.sheet_id == sheet.id, KpiSheetResult.status == ScoreResultStatus.PUBLISHED))
@@ -581,6 +611,8 @@ def request_deviation(db: Session, principal: Principal, actor: AuditActor, shee
     _require_write(principal, sheet)
     if sheet.quarter.status == QuarterStatus.DRAFT:
         raise ConflictError("Scoring has not started for this quarter; edit the sheet directly.")
+    if sheet.quarter.status != QuarterStatus.OPEN:
+        require_collection(sheet.quarter)
     _require_scores_unpublished(db, sheet)
     if len(reason.strip()) < 10:
         raise ValidationFailedError([Issue("Explain the reason for the deviation (at least 10 characters).", "reason")])
@@ -639,6 +671,8 @@ def approve_deviation(db: Session, principal: Principal, actor: AuditActor, devi
 def _apply(db: Session, actor: AuditActor, deviation: KpiDeviation) -> None:
     """Apply in the SAME transaction as the final approval."""
     sheet = deviation.sheet
+    if sheet.quarter.status != QuarterStatus.OPEN:
+        require_collection(sheet.quarter)
     _require_scores_unpublished(db, sheet)
     items = [ItemInput.from_json(i) for i in deviation.proposed_items]
     check, resolved = check_items(db, sheet.assignment, items, for_publish=True,

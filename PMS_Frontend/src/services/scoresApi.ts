@@ -111,11 +111,6 @@ export function reviewResult(sheetId: number): Promise<ResultDetail> {
         return apiRequest<ResultDetail>(`/api/kpi/results/${sheetId}/review`, { method: 'POST' })
 }
 
-/** Final and immutable (HR Head or CHRO). */
-export function publishResult(sheetId: number): Promise<ResultDetail> {
-        return apiRequest<ResultDetail>(`/api/kpi/results/${sheetId}/publish`, { method: 'POST' })
-}
-
 // --- manual overrides (a separate, dual-approved deviation) -----------------------------
 
 export function requestOverride(

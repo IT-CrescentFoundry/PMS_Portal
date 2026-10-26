@@ -16,7 +16,6 @@ import {
         approveOverride,
         calculateResults,
         getResult,
-        publishResult,
         rejectOverride,
         requestOverride,
         reviewResult,
@@ -30,6 +29,7 @@ import { canApproveDeviationAsHR, canApproveDeviationAsPlant } from '../auth/per
 import { InvalidLink } from '../common/InvalidLink'
 import { AGGREGATION_LABELS } from '../kpi/kpiLabels'
 import { Approval, SheetStatusBadge } from '../kpi/StatusBadges'
+import { CommentsPanel } from '../quarterly/CommentsPanel'
 import { ItemStatusBadge, OverrideStatusBadge, ResultStatusBadge } from './ScoreBadges'
 import { monthLabel, scoreText } from './scoreLabels'
 
@@ -61,7 +61,6 @@ export function ResultDetailPage() {
 
 function ResultView({ initial, reload }: { initial: ResultDetail; reload: () => void }) {
         const [detail, setDetail] = useState(initial)
-        const [confirmPublish, setConfirmPublish] = useState(false)
         const [requesting, setRequesting] = useState(false)
         const [message, setMessage] = useState<string | null>(null)
         const action = useAction()
@@ -89,7 +88,6 @@ function ResultView({ initial, reload }: { initial: ResultDetail; reload: () => 
                 if (updated) {
                         setDetail(updated)
                         setMessage(done)
-                        setConfirmPublish(false)
                 }
         }
 
@@ -242,17 +240,6 @@ function ResultView({ initial, reload }: { initial: ResultDetail; reload: () => 
                                                                 Mark as reviewed
                                                         </Button>
                                                 )}
-                                                {actions.can_publish && !confirmPublish && (
-                                                        <Button
-                                                                variant="primary"
-                                                                disabled={action.busy}
-                                                                onClick={() =>
-                                                                        setConfirmPublish(true)
-                                                                }
-                                                        >
-                                                                Publish the score…
-                                                        </Button>
-                                                )}
                                                 {actions.can_request_override && !requesting && (
                                                         <Button
                                                                 disabled={action.busy}
@@ -262,50 +249,6 @@ function ResultView({ initial, reload }: { initial: ResultDetail; reload: () => 
                                                         </Button>
                                                 )}
                                         </div>
-                                        {confirmPublish && (
-                                                <Alert
-                                                        tone="warning"
-                                                        title="Publishing is final"
-                                                        action={
-                                                                <div className="flex flex-wrap gap-2">
-                                                                        <Button
-                                                                                variant="primary"
-                                                                                isLoading={
-                                                                                        action.busy
-                                                                                }
-                                                                                onClick={() =>
-                                                                                        run(
-                                                                                                () =>
-                                                                                                        publishResult(
-                                                                                                                sheetId,
-                                                                                                        ),
-                                                                                                'Published. The score is now final.',
-                                                                                        )
-                                                                                }
-                                                                        >
-                                                                                Publish{' '}
-                                                                                {scoreText(
-                                                                                        result?.override_score ??
-                                                                                                result?.final_score,
-                                                                                )}
-                                                                        </Button>
-                                                                        <Button
-                                                                                variant="ghost"
-                                                                                onClick={() =>
-                                                                                        setConfirmPublish(
-                                                                                                false,
-                                                                                        )
-                                                                                }
-                                                                        >
-                                                                                Cancel
-                                                                        </Button>
-                                                                </div>
-                                                        }
-                                                >
-                                                        The published score cannot be recalculated
-                                                        or changed afterwards.
-                                                </Alert>
-                                        )}
                                         {requesting && (
                                                 <OverrideForm
                                                         sheetId={sheetId}
@@ -339,6 +282,10 @@ function ResultView({ initial, reload }: { initial: ResultDetail; reload: () => 
                                                         '—'}
                                                 : {detail.applied_override.reason}
                                         </Alert>
+                                )}
+
+                                {detail.sheet.status === 'LOCKED' && (
+                                        <CommentsPanel sheetId={sheetId} />
                                 )}
 
                                 <section aria-labelledby="kpis-heading" className="space-y-3">

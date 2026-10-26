@@ -6,11 +6,12 @@ configuration.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import (
     CheckConstraint,
     Date,
+    DateTime,
     Enum,
     ForeignKey,
     SmallInteger,
@@ -50,9 +51,9 @@ class PmsCycle(TimestampMixin, Base):
 class PmsCycleQuarter(TimestampMixin, Base):
     """One of the four quarters of a cycle, with its own configurable dates.
 
-    Quarterly feedback is optional and, by default, does not block the
-    workflow: feedback_enabled turns it on, feedback_blocking (default off)
-    would make it a prerequisite for closing the quarter.
+    Quarterly feedback is optional: feedback_enabled turns it on. Publication
+    never depends on feedback (Stage L business rule), so feedback_blocking
+    is not used by any step.
 
     Checking that quarter dates sit inside the cycle without overlapping is
     a cross-row rule, validated in the service layer.
@@ -84,6 +85,11 @@ class PmsCycleQuarter(TimestampMixin, Base):
     )
     feedback_blocking: Mapped[bool] = mapped_column(
         default=False, server_default=text("0")
+    )
+    # Stage L: who published the quarter's scores, and when.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    published_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), index=True
     )
 
     cycle: Mapped[PmsCycle] = relationship(back_populates="quarters")

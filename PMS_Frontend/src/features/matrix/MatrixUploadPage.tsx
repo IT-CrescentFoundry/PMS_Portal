@@ -41,7 +41,7 @@ export function MatrixUploadPage() {
         if (types.error !== undefined)
                 return <ErrorState error={types.error} onRetry={types.reload} />
         if (!types.data) return <LoadingState label="Loading matrix types…" />
-        return <Uploader types={types.data} />
+        return <Uploader types={types.data.filter((t) => t.excel_templates !== false)} />
 }
 
 const ACTION_TEXT: Record<NonNullable<MatrixUploadPreview['action']>, string> = {

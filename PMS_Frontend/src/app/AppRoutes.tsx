@@ -28,6 +28,12 @@ import { MatrixEditorPage } from '../features/matrix/MatrixEditorPage'
 import { MatrixUploadPage } from '../features/matrix/MatrixUploadPage'
 import { MatrixVersionPage } from '../features/matrix/MatrixVersionPage'
 import { PlantDetailPage } from '../features/plants/PlantDetailPage'
+import { CohortPage } from '../features/quarterly/CohortPage'
+import { EmployeeResultPage } from '../features/quarterly/EmployeeResultPage'
+import { EmployeeResultsPage } from '../features/quarterly/EmployeeResultsPage'
+import { MyKpiSheetsPage } from '../features/quarterly/MyKpiSheetsPage'
+import { NormalizationPage } from '../features/quarterly/NormalizationPage'
+import { QuarterOverviewPage } from '../features/quarterly/QuarterOverviewPage'
 import { PlantsPage } from '../features/plants/PlantsPage'
 import { HeadcountPage } from '../features/reports/HeadcountPage'
 import { MonthlyDataPage } from '../features/scores/MonthlyDataPage'
@@ -123,12 +129,33 @@ export function AppRoutes() {
                                                 path="scores/overrides"
                                                 element={<OverridesPage />}
                                         />
+                                        <Route
+                                                path="scores/quarter"
+                                                element={<QuarterOverviewPage />}
+                                        />
+                                        <Route
+                                                path="scores/employees"
+                                                element={<EmployeeResultsPage />}
+                                        />
+                                        <Route
+                                                path="scores/quarters/:quarterId/employees/:employeeId"
+                                                element={<EmployeeResultPage />}
+                                        />
+                                        <Route
+                                                path="scores/normalization"
+                                                element={<NormalizationPage />}
+                                        />
+                                        <Route
+                                                path="scores/normalization/:runId"
+                                                element={<CohortPage />}
+                                        />
                                 </Route>
                                 {/* Also reachable by employees for their own record (the API decides). */}
                                 <Route
                                         path="employees/:employeeId"
                                         element={<EmployeeDetailPage />}
                                 />
+                                <Route path="my/kpi-sheets" element={<MyKpiSheetsPage />} />
                                 <Route path="profile" element={<ProfilePage />} />
                                 <Route path="*" element={<NotFoundPage />} />
                         </Route>

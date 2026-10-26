@@ -126,6 +126,10 @@ def analyse_upload(db: Session, principal: Principal, data: bytes) -> UploadPlan
     if spec is None:
         plan.problems.append(Located("Workbook", f"Unknown matrix type '{meta.get('matrix_type')}'."))
         return plan
+    if not spec.excel_templates:
+        plan.problems.append(Located("Workbook", f"{spec.name}s are configured in the portal, not "
+                                                 "in Excel."))
+        return plan
     plan.spec = spec
     settings = parsed.settings
     if str(settings.get("matrix_type") or spec.code).strip() != spec.code:

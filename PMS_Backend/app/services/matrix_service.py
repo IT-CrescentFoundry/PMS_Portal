@@ -210,6 +210,24 @@ def resolve(db: Session, matrix_id: int, on: date, plant_id: int,
     return matching[0] if matching else None
 
 
+def resolve_by_type(db: Session, matrix_type: str, on: date, plant_id: int,
+                    department_id: int) -> MatrixVersion | None:
+    """The published version of an applicability-selected type in force on
+    `on` for one unit, across all matrices of the type (at most one may
+    apply: publication refuses overlaps)."""
+    versions = db.scalars(
+        select(MatrixVersion).join(Matrix)
+        .where(Matrix.matrix_type == matrix_type, Matrix.is_active,
+               MatrixVersion.status == MatrixVersionStatus.PUBLISHED)
+        .options(selectinload(MatrixVersion.scopes), selectinload(MatrixVersion.matrix))
+    ).all()
+    matching = [v for v in versions if in_force(v, on) and _covers_unit(v, plant_id, department_id)]
+    if len(matching) > 1:
+        raise ConflictError("More than one published version applies; ask HR to correct the "
+                            "effective dates or applicability.")
+    return matching[0] if matching else None
+
+
 # --- analysis ------------------------------------------------------------------------------
 
 @dataclass

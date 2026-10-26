@@ -45,7 +45,9 @@ export function MonthlyDataPage() {
         if (quarters.error !== undefined || !quarters.data)
                 return <ErrorState error={quarters.error} onRetry={quarters.reload} />
         const chosen = parseId(params.get('quarter'))
-        const quarter = quarters.data.find((q) => q.id === chosen) ?? scoringQuarter(quarters.data)
+        const quarter =
+                quarters.data.find((q) => q.id === chosen) ??
+                scoringQuarter(quarters.data, ['OPEN'])
         if (!quarter) {
                 return (
                         <>

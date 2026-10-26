@@ -143,7 +143,7 @@ scopes of the role grants that carry it:
 | `jd:authorise` | PLANT_HEAD | authorise a proposed JD, or return it to draft |
 | `jd:approve` | CHRO | approve an authorised JD, or return it to draft |
 | `kpi:write` | ADMIN, HR_HEAD, HR, DEPT_HEAD | KPI library, quarterly KPI sheets, Excel upload, deviation requests |
-| `quarter:start` | ADMIN, HR_HEAD, CHRO | start quarterly scoring (locks the quarter's sheets); needs **GLOBAL** scope |
+| `quarter:start` | ADMIN, HR_HEAD, CHRO | start quarterly scoring (locks the quarter's sheets) and move the quarter through its review steps (Stage L); needs **GLOBAL** scope |
 | `deviation:approve_hr` | HR_HEAD, CHRO | the HR Head approval of a deviation |
 | `deviation:approve_plant` | PLANT_HEAD | the Plant Head approval of a deviation |
 
@@ -155,7 +155,7 @@ Configurable matrices and scoring (Stage K) add:
 | `matrix:read_compensation` | ADMIN, CHRO, HR_HEAD | also view compa-ratio and increment matrix types |
 | `matrix:write` | HR_HEAD | create matrices, edit drafts (portal or Excel), submit, withdraw, publish; the writer's scope must cover the version's applicability (company-wide needs GLOBAL) |
 | `matrix:approve` | CHRO | approve or reject a submitted version (not its author or submitter), publish |
-| `score:publish` | HR_HEAD, CHRO | publish a reviewed quarterly score (final) |
+| `score:publish` | HR_HEAD, CHRO | contribution weights of cross-plant employees, normalization placements and cohort approval (scope covering everyone concerned); publish a whole quarter (GLOBAL only) |
 
 Score overrides use the deviation capabilities: `kpi:write` requests,
 `deviation:approve_hr` and `deviation:approve_plant` approve (two different
@@ -164,7 +164,9 @@ people, neither the requester).
 Separation of duties is enforced by the API and, for deviations, also by
 database CHECK constraints: the three JD signatories must be different
 people; a deviation's two approvers must be different people and neither
-may be the requester. "Available budget for the department" on a JD is
+may be the requester. Nobody marks their own KPI result as reviewed, places
+themselves in a normalization cohort, or approves a cohort they belong to or
+placed anyone in (Stage L). "Available budget for the department" on a JD is
 filled by HR roles (HR, HR_HEAD, CHRO, ADMIN) only. Company-wide KPIs and
 scoring policies need GLOBAL `kpi:write`.
 
@@ -212,9 +214,9 @@ Rules:
 | 429 | Too many failed sign-ins (`Retry-After` header) | `{"detail": "Too many sign-in attempts. Please wait and try again."}` |
 | 403 | The record is visible but this action is not yours (wrong role, scope, or separation of duties) | `{"detail": "The requester cannot approve their own deviation."}` |
 | 404 | Record does not exist **or** is outside your access (indistinguishable by design) | `{"detail": "Plant 7 not found"}` |
-| 409 | Not allowed in the record's current state (e.g. editing a published sheet, any change after scoring started, duplicate role title, editing a submitted or published matrix version, publishing an overlapping version) | `{"detail": "Only a draft sheet can be edited; reopen it first."}` |
+| 409 | Not allowed in the record's current state (e.g. editing a published sheet, any change after scoring started, duplicate role title, editing a submitted or published matrix version, publishing an overlapping version, an action outside its quarter step) | `{"detail": "Only a draft sheet can be edited; reopen it first."}` |
 | 422 | Invalid request body or query parameter | FastAPI validation detail |
-| 422 | Business rules not met (weightage total, applicability, upload rows) | `{"detail": "Please correct the problems listed.", "issues": [{"message", "field", "row"}]}`; `row` is the spreadsheet row for uploads |
+| 422 | Business rules not met (weightage total, applicability, upload rows, a quarter step's gate) | `{"detail": "Please correct the problems listed.", "issues": [{"message", "field", "row"}]}`; `row` is the spreadsheet row for uploads |
 
 ## Endpoints
 
@@ -262,7 +264,7 @@ APPROVED; the previous approved version becomes SUPERSEDED.
 | POST | `/api/kpi/policies/{id}/preview` | `org:read` | `{"achievement_percent"}` or, for zero tolerance, `{"actual"}` → `{"score", "matrix_version_id", "version_no", "status"}` (the version in force today, else the latest) |
 | GET | `/api/kpi/library` | `org:read` | `plant_id` + `department_id` = KPIs usable there; `search`, `include_inactive` |
 | POST, PUT | `/api/kpi/library[/{id}]` | `kpi:write` | applicability must lie within the writer's scope; 409 for a duplicate name; `reporting_frequency` (MONTHLY, QUARTERLY), `aggregation` (SUM, AVERAGE, LAST, MIN, MAX) and `measurement_method` are needed before a sheet using the KPI is published |
-| GET | `/api/kpi/quarters` | `org:read` | status DRAFT = KPI setup open; OPEN = scoring started |
+| GET | `/api/kpi/quarters` | `org:read` | status DRAFT = KPI setup open; OPEN = scoring started (data collection); then DEPARTMENT_REVIEW, NORMALIZATION, READY, PUBLISHED (Stage L) |
 | POST | `/api/kpi/quarters/{id}/start-scoring` | GLOBAL `quarter:start` | locks every PUBLISHED sheet of the quarter; DRAFT sheets stay unscorable |
 | GET | `/api/kpi/sheets` | `org:read` | `quarter_id` (required), `plant_id`, `department_id`, `search`: one row per assignment active in the quarter, with its sheet if any |
 | POST | `/api/kpi/sheets` | `kpi:write` | `{"assignment_id", "quarter_id"}`; one sheet per assignment per quarter |
@@ -275,7 +277,7 @@ APPROVED; the previous approved version becomes SUPERSEDED.
 | POST | `/api/kpi/uploads/preview` | `kpi:write` | multipart `quarter_id` + `file` (.xlsx ≤ 1 MB, ≤ 1000 rows); validates, saves nothing |
 | POST | `/api/kpi/uploads/confirm` | `kpi:write` | same form; re-validates and saves every sheet as DRAFT in one transaction, or nothing |
 | GET | `/api/kpi/deviations` | `org:read` | `status` |
-| POST | `/api/kpi/deviations` | `kpi:write` | `{"sheet_id", "reason" (≥ 10 chars), "items"}`; only after scoring started; one pending per sheet |
+| POST | `/api/kpi/deviations` | `kpi:write` | `{"sheet_id", "reason" (≥ 10 chars), "items"}`; only while the quarter is in data collection (OPEN); one pending per sheet |
 | GET | `/api/kpi/deviations/{id}` | `org:read` | original and proposed items |
 | POST | `/api/kpi/deviations/{id}/approve` | `deviation:approve_hr` / `_plant` | `{"as": "HR_HEAD" \| "PLANT_HEAD"}`; applies when both sides have approved |
 | POST | `/api/kpi/deviations/{id}/reject` | either approver | `{"reason"}` |
@@ -333,6 +335,9 @@ Rules for an import:
 - Only published or locked sheets in the caller's `kpi:write` scope receive
   data.
 - The month must have started and must lie in the quarter.
+- Only while the quarter is in data collection (DRAFT or OPEN); later steps
+  refuse imports and calculation until HR returns the quarter to data
+  collection.
 - Results that are already published refuse new data.
 - A value already stored is replaced only with `replace_existing=true`.
 - A file identical to an earlier import of the same month is flagged.
@@ -350,12 +355,41 @@ Rules for an import:
 | POST | `/api/kpi/results/calculate` | `kpi:write` | `{"quarter_id", "sheet_ids"?}` → `{"calculated", "unchanged", "published", "complete"}`; published results are never recalculated |
 | GET | `/api/kpi/results` | `org:read` | `quarter_id`, `plant_id`, `department_id`, `search` |
 | GET | `/api/kpi/results/{sheet_id}` | readers of the sheet | calculated (exact), final (2 decimals), override and published scores; per-KPI explanation; allowed actions |
-| POST | `/api/kpi/results/{sheet_id}/review` | `kpi:write` | a complete, current result of a locked sheet with no pending override |
-| POST | `/api/kpi/results/{sheet_id}/publish` | `score:publish` | a reviewed result; final and immutable |
-| POST | `/api/kpi/results/{sheet_id}/overrides` | `kpi:write` | `{"proposed_score" (0–5, ≤ 2 decimals), "reason" (≥ 10 chars)}`; the calculated score is kept |
+| POST | `/api/kpi/results/{sheet_id}/review` | `kpi:write` | a complete, current result of a locked sheet with no pending override, while the quarter is OPEN or in DEPARTMENT_REVIEW; never one's own sheet (403) |
+| POST | `/api/kpi/results/{sheet_id}/publish` | — | retired in Stage L (409): scores are published with their whole quarter |
+| POST | `/api/kpi/results/{sheet_id}/overrides` | `kpi:write` | `{"proposed_score" (0–5, ≤ 2 decimals), "reason" (≥ 10 chars)}`; the calculated score is kept; while the quarter is OPEN or in DEPARTMENT_REVIEW |
 | GET | `/api/kpi/overrides[/{id}]` | `org:read` | `status` (PENDING, APPLIED, REJECTED, VOIDED) |
 | POST | `/api/kpi/overrides/{id}/approve` | `deviation:approve_hr` / `_plant` | `{"as": "HR_HEAD" \| "PLANT_HEAD"}`; applied when both sides have approved |
 | POST | `/api/kpi/overrides/{id}/reject` | either approver | `{"reason"}` |
+
+### Quarterly review, normalization and publication (Stage L)
+
+The quarter moves DRAFT → OPEN (data collection) → DEPARTMENT_REVIEW →
+NORMALIZATION → READY → PUBLISHED. Each forward step checks a company-wide
+gate (422 lists every blocker); each step can be undone one step back with a
+reason of at least 10 characters. Lifecycle, gates, consolidation and the
+normalization policy are described in
+[database-design.md](database-design.md#quarterly-review-normalization-and-publication-stage-l).
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| GET | `/api/kpi/quarters/{id}/overview` | `org:read` | status, next and previous step, company-wide counts (sheets, employees, cohorts), `blockers` of the next step, `unscorable_sheets`, who published it, allowed `actions` |
+| POST | `/api/kpi/quarters/{id}/transition` | GLOBAL `quarter:start` | `{"to", "reason"?}`; one step forward (gate checked) or back (`reason` required); entering NORMALIZATION freezes employee scores and computes the cohorts |
+| POST | `/api/kpi/quarters/{id}/publish` | GLOBAL `score:publish` | READY only; publishes every sheet result, employee result and cohort in one transaction, re-verifying hashes; final |
+| GET | `/api/kpi/quarters/{id}/employees` | `org:read` | `plant_id`, `department_id`, `search`; one row per employee (counted once), visible when the caller covers the employee's home unit or every scored assignment |
+| GET | `/api/kpi/quarters/{id}/employees/{eid}` | as above | components (assignment, sheet, score used, weight, contribution), exact and final score, issues, normalization outcome |
+| PUT | `/api/kpi/quarters/{id}/employees/{eid}/weights` | `score:publish` covering every scored assignment | `{"weights": [{"assignment_id", "weight"}]}`; exactly the scored assignments, each > 0, total exactly 100.00; OPEN or DEPARTMENT_REVIEW only |
+| GET | `/api/kpi/quarters/{id}/normalization` | `org:read` | the cohorts the caller covers entirely: policy version, population, eligible, target and actual counts and percentages per group, `matches_targets`, unresolved placements |
+| GET | `/api/kpi/normalization-runs/{id}` | `org:read` covering every member | settings, ranked members with group, placement, reason, normalized rating and its rule, exceptions, allowed `actions` |
+| POST | `/api/kpi/normalization-runs/{id}/placements` | `score:publish` covering the cohort | `{"employee_id", "group", "reason" (≥ 10 chars)}`; only a tied employee or a small-cohort member, only one of their offered groups, never oneself |
+| POST | `/api/kpi/normalization-runs/{id}/approve` | `score:publish` covering the cohort | `{"note"?}`; nothing unresolved; not by anyone who placed a member or is a member |
+| POST | `/api/kpi/normalization-runs/{id}/reopen` | `score:publish` covering the cohort | `{"reason"}`; APPROVED → DRAFT, while the quarter is in NORMALIZATION |
+| GET | `/api/kpi/sheets/{id}/comments` | readers of the sheet | `{"comments", "can_comment"}`; the employee sees FEEDBACK only |
+| POST | `/api/kpi/sheets/{id}/comments` | `kpi:write` | `{"kind": "REVIEW_COMMENT" or "FEEDBACK", "body" (1–2000 chars)}`; locked sheets, quarter between OPEN and READY; optional, never required by any step |
+| GET | `/api/kpi/my/kpi-sheets` | `self:read` | the caller's own published or locked sheets with their KPIs; scores, group, normalized rating and feedback only once the quarter is published |
+
+Every step, weight change, placement, approval, reopening, comment and the
+publication is audited in the same transaction as the change.
 
 ## Local demo accounts
 

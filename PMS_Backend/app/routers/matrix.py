@@ -39,7 +39,7 @@ from app.services import matrix_rules as rules
 from app.services import matrix_service as service
 from app.services import matrix_templates as templates
 from app.services import matrix_uploads as uploads
-from app.services.errors import Issue, PermissionDeniedError, ValidationFailedError
+from app.services.errors import ConflictError, Issue, PermissionDeniedError, ValidationFailedError
 from app.services.applicability import ApplicabilityInput
 from app.services.matrix_types import MatrixTypeSpec, type_metadata
 from app.services.scope import department_visible, plant_visible
@@ -172,6 +172,12 @@ def _readable_spec(principal: Principal, code: str) -> MatrixTypeSpec:
     return spec
 
 
+def _require_templates(spec: MatrixTypeSpec) -> None:
+    if not spec.excel_templates:
+        raise ConflictError(f"{spec.name}s are configured in the portal; there is no Excel "
+                            "template for them.")
+
+
 def _xlsx(data: bytes, filename: str) -> Response:
     return Response(content=data, media_type=XLSX,
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
@@ -204,6 +210,7 @@ def type_template(code: str, db: DbSession, principal: CurrentPrincipal) -> Resp
     spec = _readable_spec(principal, code)
     if principal.scope_for(Permission.MATRIX_WRITE).is_empty:
         raise PermissionDeniedError("Only HR Head users configure matrices.")
+    _require_templates(spec)
     scope = principal.scope_for(Permission.MATRIX_WRITE)
     plants, departments = _codes(db, principal)
     ctx = templates.TemplateContext(spec=spec, applicability=[("ALL", "ALL")] if scope.is_global
@@ -363,6 +370,7 @@ def version_template(matrix_id: int, version_id: int, db: DbSession,
     """The version's content as a template, to edit in Excel and upload again."""
     matrix, version = service.get_version(db, principal, matrix_id, version_id)
     spec = service.spec_for(matrix.matrix_type)
+    _require_templates(spec)
     plants, departments = _codes(db, principal)
     ctx = templates.TemplateContext(
         spec=spec, matrix_code=matrix.code, version_no=version.version_no, name=matrix.name,

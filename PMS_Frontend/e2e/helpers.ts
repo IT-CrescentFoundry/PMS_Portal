@@ -21,6 +21,11 @@ export async function signIn(page: Page, username: string): Promise<void> {
         await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
 }
 
+export async function signOut(page: Page): Promise<void> {
+        await page.getByRole('button', { name: 'Sign out' }).click()
+        await expect(page.getByText('You have been signed out.')).toBeVisible()
+}
+
 /** Look up ids through the API as an administrator (not via the browser). */
 export async function adminLookup() {
         const api = await request.newContext({ baseURL: API_ORIGIN })
