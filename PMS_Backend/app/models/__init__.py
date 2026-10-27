@@ -4,12 +4,18 @@ Every model module must be imported here so that Base.metadata is complete
 when Alembic (migrations/env.py) autogenerates migrations.
 """
 from app.models.access import Role, User, UserRole, UserRoleScope
+from app.models.annual import AnnualResult, AnnualScoreDeviation
 from app.models.audit import AuditEvent
+from app.models.correction import QuarterCorrection, QuarterCorrectionItem
 from app.models.cycle import PmsCycle, PmsCycleQuarter
 from app.models.employee import Employee, EmployeeAssignment
 from app.models.enums import (
+    AnnualDeviationStatus,
+    AnnualResultStatus,
     AuditActorType,
     CohortLevel,
+    CorrectionItemKind,
+    CorrectionStatus,
     CycleStatus,
     DeviationStatus,
     EmployeeResultStatus,
@@ -50,10 +56,16 @@ from app.models.quarterly import (
 )
 
 __all__ = [
+    "AnnualDeviationStatus",
+    "AnnualResult",
+    "AnnualResultStatus",
+    "AnnualScoreDeviation",
     "AssignmentScoreWeight",
     "AuditActorType",
     "AuditEvent",
     "CohortLevel",
+    "CorrectionItemKind",
+    "CorrectionStatus",
     "CycleStatus",
     "Department",
     "Designation",
@@ -92,6 +104,8 @@ __all__ = [
     "PlantDepartment",
     "PmsCycle",
     "PmsCycleQuarter",
+    "QuarterCorrection",
+    "QuarterCorrectionItem",
     "QuarterStatus",
     "ReportingFrequency",
     "Role",

@@ -103,6 +103,7 @@ class ScoreResultStatus(StrEnum):
     CALCULATED = "CALCULATED"  # system result; recalculated when inputs change
     REVIEWED = "REVIEWED"      # checked by the manager
     PUBLISHED = "PUBLISHED"    # final and immutable
+    SUPERSEDED = "SUPERSEDED"  # replaced by a corrected version published later (Stage M)
 
 
 class ScoreOverrideStatus(StrEnum):
@@ -149,8 +150,9 @@ class ScopeType(StrEnum):
 class EmployeeResultStatus(StrEnum):
     """An employee's consolidated quarterly score."""
 
-    DRAFT = "DRAFT"          # frozen for normalization; recomputed if the quarter steps back
-    PUBLISHED = "PUBLISHED"  # final and immutable
+    DRAFT = "DRAFT"            # frozen for normalization; recomputed if the quarter steps back
+    PUBLISHED = "PUBLISHED"    # final and immutable
+    SUPERSEDED = "SUPERSEDED"  # replaced by a corrected version published later (Stage M)
 
 
 class NormalizationRunStatus(StrEnum):
@@ -158,8 +160,9 @@ class NormalizationRunStatus(StrEnum):
 
     DRAFT = "DRAFT"          # computed; placements may be needed
     APPROVED = "APPROVED"    # checked by an HR Head or the CHRO
-    PUBLISHED = "PUBLISHED"  # published with the quarter
-    DISCARDED = "DISCARDED"  # the cohort no longer exists after a recomputation
+    PUBLISHED = "PUBLISHED"    # published with the quarter
+    DISCARDED = "DISCARDED"    # the cohort no longer exists after a recomputation
+    SUPERSEDED = "SUPERSEDED"  # replaced by a corrected version published later (Stage M)
 
 
 class NormalizationPlacement(StrEnum):
@@ -184,3 +187,37 @@ class CohortLevel(StrEnum):
 class SheetCommentKind(StrEnum):
     REVIEW_COMMENT = "REVIEW_COMMENT"  # between reviewers
     FEEDBACK = "FEEDBACK"              # for the employee; always optional
+
+
+class CorrectionStatus(StrEnum):
+    """A correction of a published quarter (Stage M). Once the CHRO approves
+    it, it is a new version of the quarter's results that goes through the
+    review steps again; the published version stays current until then."""
+
+    REQUESTED = "REQUESTED"                  # by an HR Head; awaits the CHRO
+    REJECTED = "REJECTED"                    # by the CHRO
+    DEPARTMENT_REVIEW = "DEPARTMENT_REVIEW"  # approved: corrected results recalculated
+    NORMALIZATION = "NORMALIZATION"          # affected cohorts renormalized
+    READY = "READY"                          # every affected cohort approved
+    PUBLISHED = "PUBLISHED"                  # the corrected version is current
+
+
+class CorrectionItemKind(StrEnum):
+    VALUE = "VALUE"      # one monthly source value of one KPI of one sheet
+    WEIGHTS = "WEIGHTS"  # the contribution weights of one cross-plant employee
+
+
+class AnnualResultStatus(StrEnum):
+    """One version of an employee's annual result for a cycle (Stage M)."""
+
+    CALCULATED = "CALCULATED"  # from the published quarters; awaits CHRO approval
+    PUBLISHED = "PUBLISHED"    # approved by the CHRO: final
+    SUPERSEDED = "SUPERSEDED"  # a published version replaced by a newer published one
+    DISCARDED = "DISCARDED"    # a calculation replaced by a newer one before approval
+
+
+class AnnualDeviationStatus(StrEnum):
+    PENDING = "PENDING"    # requested by an Admin; awaits the CHRO
+    APPROVED = "APPROVED"  # the adjusted score applies to that annual result version
+    REJECTED = "REJECTED"
+    VOIDED = "VOIDED"      # the annual result was recalculated before a decision

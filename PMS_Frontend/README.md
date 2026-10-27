@@ -86,6 +86,18 @@ has the CHRO approve the cohort and publish, and checks the employee's
 **My KPI sheets**. Earlier run quarters stay in the e2e database; the pages'
 default quarter ignores them because they start before the demo quarters.
 
+`e2e/annual.spec.ts` (Stage M) works the same way: the e2e server also seeds a
+fresh **annual cycle** per run (`E2E-A<timestamp>`: four one-month quarters,
+April–July 2026, each with a locked sheet for DEMO0005, the `demo.employee`
+account; `seed_annual_cycle` in `PMS_Backend/tests/e2e_server.py`). The spec
+publishes the four quarters through the API (the quarterly workflow itself is
+covered in the browser by `quarterly.spec.ts`), then, in the browser,
+calculates the annual score, has an Admin request a deviation that the CHRO
+approves, approves the annual result, corrects a published quarter through a
+new reviewed version, recalculates and re-approves the annual result, and
+checks that both versions stay visible and that the employee sees only the
+approved outcome. Values are designed so every score is known in advance.
+
 ## How it works
 
 ```
@@ -98,7 +110,10 @@ src/
                   scores (monthly data import, quarterly results, overrides),
                   quarterly (quarter overview and steps, employee results and
                   contribution weights, normalization cohorts, comments and
-                  feedback, My KPI sheets)
+                  feedback, My KPI sheets),
+                  annual (annual results, deviations, CHRO approval, versions),
+                  corrections (requesting, deciding and completing corrections
+                  of published quarters; result versions)
   services/       apiClient.ts (the only HTTP client) and one module per API area
   hooks/          useApiQuery (cancellable, race-safe data loading),
                   useAction (one save or sign-off at a time, with its error)

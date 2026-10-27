@@ -16,6 +16,7 @@ import { getQuarterOverview, publishQuarter, transitionQuarter } from '../../ser
 import type { Quarter, QuarterOverview } from '../../types/api'
 import { formatDate, plural } from '../../utils/format'
 import { parseId, withParams } from '../../utils/params'
+import { QuarterVersions } from '../corrections/QuarterVersions'
 import { QuarterStatusBadge } from '../kpi/StatusBadges'
 import { scoringQuarter } from '../scores/scoreLabels'
 import { phaseLabel } from './quarterLabels'
@@ -134,10 +135,11 @@ function Overview({
                                                 Published by{' '}
                                                 {overview.published_by?.username ?? '—'} on{' '}
                                                 {formatDate(overview.published_at)}. Scores, groups
-                                                and ratings are final; nothing in this quarter
-                                                changes.
+                                                and ratings are final; a published version never
+                                                changes, and a correction becomes a new version.
                                         </Alert>
                                 )}
+                                {status === 'PUBLISHED' && <QuarterVersions overview={overview} />}
                                 {overview.unscorable_sheets > 0 && (
                                         <Alert
                                                 tone="warning"

@@ -1,4 +1,5 @@
 import {
+        Award,
         Building2,
         Calculator,
         CalendarCheck,
@@ -7,6 +8,7 @@ import {
         ClipboardList,
         Factory,
         FileSpreadsheet,
+        FilePen,
         FileText,
         GitPullRequestArrow,
         Grid3x3,
@@ -23,9 +25,11 @@ import {
 import {
         canApproveDeviationAsHR,
         canApproveDeviationAsPlant,
+        canReadAnnual,
         canReadMatrices,
         canReadOrganization,
         canReadOwnRecord,
+        canWorkOnCorrections,
         canWriteKpi,
 } from '../../features/auth/permissions'
 import type { CurrentUser } from '../../types/api'
@@ -159,6 +163,13 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                                 icon: Scale,
                         })
                 }
+                if (canWorkOnCorrections(user)) {
+                        scoring.push({
+                                label: 'Quarter corrections',
+                                to: '/scores/corrections',
+                                icon: FilePen,
+                        })
+                }
                 // Before Reports, after Organization.
                 groups.splice(
                         2,
@@ -166,6 +177,20 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                         { label: 'JD & KPI setup', items: performance },
                         { label: 'Scoring', items: scoring },
                 )
+        }
+        if (canReadAnnual(user)) {
+                const at = groups.findIndex((g) => g.label === 'Scoring')
+                groups.splice(at === -1 ? groups.length : at + 1, 0, {
+                        label: 'Annual',
+                        items: [
+                                { label: 'Annual results', to: '/annual', icon: Award, end: true },
+                                {
+                                        label: 'Annual deviations',
+                                        to: '/annual/deviations',
+                                        icon: GitPullRequestArrow,
+                                },
+                        ],
+                })
         }
         const account: NavItem[] = [
                 {
@@ -204,10 +229,13 @@ const SECTION_TITLES: [prefix: string, title: string][] = [
         ['/scores/data', 'Scoring · Monthly KPI data'],
         ['/scores/results', 'Scoring · KPI results'],
         ['/scores/overrides', 'Scoring · Score overrides'],
+        ['/scores/corrections', 'Scoring · Quarter corrections'],
         ['/scores/quarter', 'Scoring · Quarter overview'],
         ['/scores/employees', 'Scoring · Employee results'],
         ['/scores/quarters', 'Scoring · Employee results'],
         ['/scores/normalization', 'Scoring · Normalization'],
+        ['/annual/deviations', 'Annual · Deviations'],
+        ['/annual', 'Annual · Annual results'],
         ['/my/kpi-sheets', 'Account · My KPI sheets'],
         ['/profile', 'Account · My profile'],
 ]

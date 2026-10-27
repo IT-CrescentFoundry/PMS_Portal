@@ -25,6 +25,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     UniqueConstraint,
     text,
@@ -94,10 +95,19 @@ class KpiMonthlyValue(TimestampMixin, Base):
 
 
 class KpiSheetResult(TimestampMixin, Base):
-    """The quarterly result of one KPI sheet (one employee assignment)."""
+    """The quarterly result of one KPI sheet (one employee assignment).
+
+    Version 1 is the quarter's own result. An approved correction of the
+    published quarter (Stage M) adds a row with the correction's version for
+    each sheet it recalculates; the published row is never changed and is
+    SUPERSEDED only when the corrected version is published. At most one row
+    per sheet is PUBLISHED at any time."""
 
     __tablename__ = "kpi_sheet_results"
     __table_args__ = (
+        UniqueConstraint("sheet_id", "version_no", name="uq_kpi_sheet_results_version"),
+        UniqueConstraint("published_key", name="uq_kpi_sheet_results_published"),
+        CheckConstraint("version_no >= 1", name="version_range"),
         CheckConstraint(
             "final_score IS NULL OR final_score BETWEEN 0 AND 5", name="final_score_range"
         ),
@@ -108,7 +118,8 @@ class KpiSheetResult(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    sheet_id: Mapped[int] = mapped_column(ForeignKey("kpi_sheets.id"), unique=True)
+    sheet_id: Mapped[int] = mapped_column(ForeignKey("kpi_sheets.id"))
+    version_no: Mapped[int] = mapped_column(SmallInteger, default=1, server_default=text("1"))
     status: Mapped[ScoreResultStatus] = mapped_column(
         Enum(ScoreResultStatus, name="score_result_status", values_callable=enum_values),
         default=ScoreResultStatus.CALCULATED,
@@ -131,6 +142,9 @@ class KpiSheetResult(TimestampMixin, Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
     published_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    published_key: Mapped[int | None] = mapped_column(
+        Computed("CASE WHEN status = 'PUBLISHED' THEN sheet_id END", persisted=True)
+    )
 
     sheet: Mapped[KpiSheet] = relationship()
 

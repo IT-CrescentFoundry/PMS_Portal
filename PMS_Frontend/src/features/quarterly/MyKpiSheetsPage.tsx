@@ -1,8 +1,10 @@
 import { PageHeader } from '../../components/common/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '../../components/common/QueryStates'
+import { Alert } from '../../components/common/Alert'
 import { cardClasses } from '../../components/common/styles'
 import { Table, TBody, Td, Th } from '../../components/tables/Table'
 import { useApiQuery } from '../../hooks/useApiQuery'
+import { listMyAnnual } from '../../services/annualApi'
 import { listMySheets } from '../../services/quarterlyApi'
 import type { OwnSheet } from '../../types/api'
 import { formatDate } from '../../utils/format'
@@ -19,6 +21,7 @@ export function MyKpiSheetsPage() {
                                 title="My KPI sheets"
                                 description="Your KPIs, weightages and targets for each quarter and assignment. Scores, groups and ratings appear here once the quarter is published."
                         />
+                        <MyAnnualResults />
                         {sheets.isLoading ? (
                                 <LoadingState label="Loading your KPI sheets…" />
                         ) : sheets.error !== undefined || !sheets.data ? (
@@ -147,6 +150,69 @@ function OwnSheetCard({ sheet }: { sheet: OwnSheet }) {
                                         </ul>
                                 </div>
                         )}
+                </section>
+        )
+}
+
+/** The employee's approved annual results, shown only once the CHRO approved them. */
+function MyAnnualResults() {
+        const annual = useApiQuery('my-annual', (signal) => listMyAnnual(signal))
+        if (annual.isLoading || !annual.data) {
+                return annual.error !== undefined ? (
+                        <ErrorState error={annual.error} onRetry={annual.reload} />
+                ) : null
+        }
+        if (annual.data.length === 0) return null
+        return (
+                <section aria-labelledby="my-annual-heading" className="mb-4 space-y-3">
+                        <h2
+                                id="my-annual-heading"
+                                className="text-base font-semibold text-slate-900"
+                        >
+                                Annual results
+                        </h2>
+                        {annual.data.map((a) => (
+                                <article
+                                        key={a.cycle_id}
+                                        aria-label={a.cycle_name}
+                                        className={`${cardClasses} space-y-2 p-4`}
+                                >
+                                        <p className="font-semibold text-slate-900">
+                                                {a.cycle_name}
+                                        </p>
+                                        {a.notice && (
+                                                <Alert tone="warning" title="Under review">
+                                                        {a.notice}
+                                                </Alert>
+                                        )}
+                                        <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-6">
+                                                <div>
+                                                        <dt className="font-medium text-slate-700">
+                                                                Annual score
+                                                        </dt>
+                                                        <dd className="text-lg font-semibold tabular-nums">
+                                                                {scoreText(a.final_score)}
+                                                        </dd>
+                                                </div>
+                                                {a.quarters.map((q) => (
+                                                        <div key={q.quarter_number}>
+                                                                <dt className="font-medium text-slate-700">
+                                                                        {q.name}
+                                                                </dt>
+                                                                <dd className="tabular-nums">
+                                                                        {scoreText(q.score)}
+                                                                </dd>
+                                                        </div>
+                                                ))}
+                                                <div>
+                                                        <dt className="font-medium text-slate-700">
+                                                                Approved
+                                                        </dt>
+                                                        <dd>{formatDate(a.published_at)}</dd>
+                                                </div>
+                                        </dl>
+                                </article>
+                        ))}
                 </section>
         )
 }

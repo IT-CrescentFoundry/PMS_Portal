@@ -2,8 +2,14 @@ import { Route, Routes } from 'react-router'
 import { AppLayout } from '../components/layout/AppLayout'
 import { ProfilePage } from '../features/account/ProfilePage'
 import { LoginPage } from '../features/auth/LoginPage'
-import { RequireAuth, RequireOrgAccess } from '../features/auth/RequireAuth'
+import { AnnualDeviationsPage } from '../features/annual/AnnualDeviationsPage'
+import { AnnualEmployeePage } from '../features/annual/AnnualEmployeePage'
+import { AnnualPage } from '../features/annual/AnnualPage'
+import { RequireAnnualAccess, RequireAuth, RequireOrgAccess } from '../features/auth/RequireAuth'
 import { NotFoundPage } from '../features/common/NotFoundPage'
+import { CorrectionPage } from '../features/corrections/CorrectionPage'
+import { CorrectionRequestPage } from '../features/corrections/CorrectionRequestPage'
+import { CorrectionsPage } from '../features/corrections/CorrectionsPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { DepartmentDetailPage } from '../features/departments/DepartmentDetailPage'
 import { DepartmentsPage } from '../features/departments/DepartmentsPage'
@@ -148,6 +154,29 @@ export function AppRoutes() {
                                         <Route
                                                 path="scores/normalization/:runId"
                                                 element={<CohortPage />}
+                                        />
+                                        <Route
+                                                path="scores/corrections"
+                                                element={<CorrectionsPage />}
+                                        />
+                                        <Route
+                                                path="scores/corrections/new"
+                                                element={<CorrectionRequestPage />}
+                                        />
+                                        <Route
+                                                path="scores/corrections/:correctionId"
+                                                element={<CorrectionPage />}
+                                        />
+                                </Route>
+                                <Route element={<RequireAnnualAccess />}>
+                                        <Route path="annual" element={<AnnualPage />} />
+                                        <Route
+                                                path="annual/deviations"
+                                                element={<AnnualDeviationsPage />}
+                                        />
+                                        <Route
+                                                path="annual/cycles/:cycleId/employees/:employeeId"
+                                                element={<AnnualEmployeePage />}
                                         />
                                 </Route>
                                 {/* Also reachable by employees for their own record (the API decides). */}

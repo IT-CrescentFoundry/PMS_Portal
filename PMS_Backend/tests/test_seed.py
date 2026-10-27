@@ -127,3 +127,19 @@ def test_each_browser_test_run_gets_its_own_complete_quarter(db):
     sheets = db.scalars(select(KpiSheet).where(KpiSheet.cycle_quarter_id == quarter.id)).all()
     assert len(sheets) == 5 and {s.status for s in sheets} == {KpiSheetStatus.LOCKED}
     assert all(len(s.items) == 3 and all(i.matrix_version_id for i in s.items) for s in sheets)
+
+
+def test_each_browser_test_run_gets_its_own_annual_cycle(db):
+    from tests.e2e_server import seed_annual_cycle
+
+    seed(db)
+    code = seed_annual_cycle(db)
+    cycle = db.scalars(select(PmsCycle).where(PmsCycle.code == code)).one()
+    quarters = sorted(cycle.quarters, key=lambda q: q.quarter_number)
+    assert [(q.start_date.isoformat(), q.end_date.isoformat(), q.status.value) for q in quarters] == [
+        ("2026-04-01", "2026-04-30", "OPEN"), ("2026-05-01", "2026-05-31", "OPEN"),
+        ("2026-06-01", "2026-06-30", "OPEN"), ("2026-07-01", "2026-07-31", "OPEN")]
+    sheets = db.scalars(select(KpiSheet).where(
+        KpiSheet.cycle_quarter_id.in_([q.id for q in quarters]))).all()
+    assert len(sheets) == 4 and {s.assignment.employee.employee_code for s in sheets} == {"DEMO0005"}
+    assert all(len(s.items) == 2 and all(i.matrix_version_id for i in s.items) for s in sheets)

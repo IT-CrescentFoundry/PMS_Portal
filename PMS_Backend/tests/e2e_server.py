@@ -19,6 +19,11 @@ April-June 2026, so every month is complete whatever today's date), already
 in data collection with locked KPI sheets for the demo Quality employees.
 The quarterly-review spec takes it all the way to publication; because the
 quarter is new each run, the spec is repeatable and no other data changes.
+
+Stage M adds a fresh annual cycle per run ("E2E-A<timestamp>"): four
+one-month quarters (April-July 2026), each in data collection with a locked
+sheet for DEMO0005. The annual spec publishes the four quarters, calculates
+and approves the annual result, then corrects a quarter and recalculates.
 """
 import os
 import secrets
@@ -65,18 +70,24 @@ RUN_ITEMS = [("KPI-D01", "50", "100"), ("KPI-D04", "20", None), ("KPI-D07", "30"
 RUN_SHEETS = [("DEMO0001", "PLT-A", "QA"), ("DEMO0001", "PLT-B", "QA"),
               ("DEMO0002", "PLT-A", "QA"), ("DEMO0003", "PLT-B", "QA"),
               ("DEMO0012", "PLT-C", "QA")]
+# Stage M: one synthetic employee (DEMO0005, Production at Plant A, the
+# demo.employee account) scored on dispatch volume and productivity in each
+# of four one-month quarters (dates are configuration).
+ANNUAL_ITEMS = [("KPI-D02", "60", "100"), ("KPI-D06", "40", "2.0")]
+ANNUAL_SHEET = ("DEMO0005", "PLT-A", "PROD")
+ANNUAL_MONTHS = [(4, "Apr"), (5, "May"), (6, "Jun"), (7, "Jul")]
 
 
-def seed_run_quarter(session) -> str:
-    """A fresh quarter for this run, in data collection, with locked sheets
-    bound to the published demo matrix versions (as start-scoring would)."""
-    from datetime import date, datetime
+def _locked_sheets(session, quarter, sheets, items) -> None:
+    """LOCKED sheets bound to the published demo matrix versions in force on
+    the quarter's start, as start-scoring would leave them."""
+    from datetime import datetime
     from decimal import Decimal
 
     from sqlalchemy import select
 
     from app.models import (
-        CycleStatus,
+        Department,
         Employee,
         EmployeeAssignment,
         KpiDefinition,
@@ -86,12 +97,49 @@ def seed_run_quarter(session) -> str:
         KpiSheetStatus,
         Plant,
         PlantDepartment,
-        PmsCycle,
-        PmsCycleQuarter,
-        QuarterStatus,
-        Department,
     )
     from app.services import kpi_scoring, matrix_service
+
+    kpis = {k.code: k for k in session.scalars(select(KpiDefinition))}
+    now = datetime.now().replace(microsecond=0)
+    for employee, plant, department in sheets:
+        assignment = session.scalars(
+            select(EmployeeAssignment)
+            .join(Employee, EmployeeAssignment.employee_id == Employee.id)
+            .join(PlantDepartment, EmployeeAssignment.plant_department_id == PlantDepartment.id)
+            .join(Plant, PlantDepartment.plant_id == Plant.id)
+            .join(Department, PlantDepartment.department_id == Department.id)
+            .where(Employee.employee_code == employee, Plant.code == plant,
+                   Department.code == department,
+                   EmployeeAssignment.effective_from <= quarter.end_date)
+            .order_by(EmployeeAssignment.effective_from.desc())).first()
+        unit = session.get(PlantDepartment, assignment.plant_department_id)
+        sheet = KpiSheet(employee_assignment_id=assignment.id, cycle_quarter_id=quarter.id,
+                         status=KpiSheetStatus.LOCKED, published_at=now, locked_at=now,
+                         notes="Synthetic sheet for one browser-test run.")
+        session.add(sheet)
+        session.flush()
+        for order, (code, weightage, target) in enumerate(items, 1):
+            kpi = kpis[code]
+            policy = session.get(KpiScoringPolicy, kpi.default_scoring_policy_id)
+            version = matrix_service.resolve(session, policy.matrix_id, quarter.start_date,
+                                             unit.plant_id, unit.department_id)
+            session.add(KpiSheetItem(
+                sheet_id=sheet.id, kpi_definition_id=kpi.id, sort_order=order,
+                weightage=Decimal(weightage), target_value=Decimal(target or "0"), unit=kpi.unit,
+                scoring_policy_id=policy.id,
+                scoring_snapshot=kpi_scoring.scoring_snapshot(version, policy),
+                matrix_version_id=version.id,
+                measurement_snapshot=kpi_scoring.measurement_snapshot(kpi, kpi.unit)))
+    session.flush()
+
+
+def seed_run_quarter(session) -> str:
+    """A fresh quarter for this run, in data collection, with locked sheets
+    bound to the published demo matrix versions (as start-scoring would)."""
+    from datetime import date, datetime
+
+    from app.models import CycleStatus, PmsCycle, PmsCycleQuarter, QuarterStatus
 
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     start, end = date(2026, 4, 1), date(2026, 6, 30)
@@ -103,37 +151,33 @@ def seed_run_quarter(session) -> str:
                               start_date=start, end_date=end, status=QuarterStatus.OPEN)
     session.add(quarter)
     session.flush()
-    kpis = {k.code: k for k in session.scalars(select(KpiDefinition))}
-    now = datetime.now().replace(microsecond=0)
-    for employee, plant, department in RUN_SHEETS:
-        assignment = session.scalars(
-            select(EmployeeAssignment)
-            .join(Employee, EmployeeAssignment.employee_id == Employee.id)
-            .join(PlantDepartment, EmployeeAssignment.plant_department_id == PlantDepartment.id)
-            .join(Plant, PlantDepartment.plant_id == Plant.id)
-            .join(Department, PlantDepartment.department_id == Department.id)
-            .where(Employee.employee_code == employee, Plant.code == plant,
-                   Department.code == department, EmployeeAssignment.effective_from <= end)
-            .order_by(EmployeeAssignment.effective_from.desc())).first()
-        unit = session.get(PlantDepartment, assignment.plant_department_id)
-        sheet = KpiSheet(employee_assignment_id=assignment.id, cycle_quarter_id=quarter.id,
-                         status=KpiSheetStatus.LOCKED, published_at=now, locked_at=now,
-                         notes="Synthetic sheet for one browser-test run.")
-        session.add(sheet)
-        session.flush()
-        for order, (code, weightage, target) in enumerate(RUN_ITEMS, 1):
-            kpi = kpis[code]
-            policy = session.get(KpiScoringPolicy, kpi.default_scoring_policy_id)
-            version = matrix_service.resolve(session, policy.matrix_id, start, unit.plant_id,
-                                             unit.department_id)
-            session.add(KpiSheetItem(
-                sheet_id=sheet.id, kpi_definition_id=kpi.id, sort_order=order,
-                weightage=Decimal(weightage), target_value=Decimal(target or "0"), unit=kpi.unit,
-                scoring_policy_id=policy.id,
-                scoring_snapshot=kpi_scoring.scoring_snapshot(version, policy),
-                matrix_version_id=version.id,
-                measurement_snapshot=kpi_scoring.measurement_snapshot(kpi, kpi.unit)))
+    _locked_sheets(session, quarter, RUN_SHEETS, RUN_ITEMS)
+    return cycle.code
+
+
+def seed_annual_cycle(session) -> str:
+    """A fresh annual cycle for this run (Stage M): four one-month quarters,
+    April-July 2026, each in data collection with a locked sheet for
+    DEMO0005. The annual spec publishes all four, then corrects one."""
+    from datetime import date, datetime, timedelta
+
+    from app.models import CycleStatus, PmsCycle, PmsCycleQuarter, QuarterStatus
+
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    cycle = PmsCycle(code=f"E2E-A{stamp}", name=f"E2E annual {stamp}",
+                     start_date=date(2026, 4, 1), end_date=date(2026, 7, 31),
+                     status=CycleStatus.ACTIVE)
+    session.add(cycle)
     session.flush()
+    for number, (month, label) in enumerate(ANNUAL_MONTHS, 1):
+        start = date(2026, month, 1)
+        quarter = PmsCycleQuarter(
+            cycle_id=cycle.id, quarter_number=number, name=f"E2E A{number} ({label} 2026)",
+            start_date=start, end_date=date(2026, month + 1, 1) - timedelta(days=1),
+            status=QuarterStatus.OPEN)
+        session.add(quarter)
+        session.flush()
+        _locked_sheets(session, quarter, [ANNUAL_SHEET], ANNUAL_ITEMS)
     return cycle.code
 
 
@@ -167,8 +211,9 @@ def main() -> None:
     with SessionLocal() as session, session.begin():
         seed(session, demo_password=password)
         run_cycle = seed_run_quarter(session)
-    print(f"[e2e-server] Database '{e2e_db}' migrated and seeded (run quarter {run_cycle}); "
-          f"serving on port {port}.")
+        annual_cycle = seed_annual_cycle(session)
+    print(f"[e2e-server] Database '{e2e_db}' migrated and seeded (run quarter {run_cycle}, "
+          f"annual cycle {annual_cycle}); serving on port {port}.")
 
     import uvicorn
 

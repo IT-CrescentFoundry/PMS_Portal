@@ -42,7 +42,7 @@ os.environ["AUTH_COOKIE_SECURE"] = "false"  # TestClient talks plain HTTP
 import json  # noqa: E402
 from collections.abc import Callable, Iterator  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
-from datetime import date  # noqa: E402
+from datetime import date, timedelta  # noqa: E402
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
@@ -712,3 +712,142 @@ def review_env(kpi_env: KpiEnv, as_role, db: Session, fixed_today) -> ReviewEnv:
     assert started.status_code == 200, started.text
     policy = published_normalization_policy(db)
     return ReviewEnv(kpi_env, sheets, policy, users, clients, db)
+
+
+# --- Stage M (annual results, deviations, quarter corrections) fixtures ------------------
+
+# One-month quarters (configurable dates), so four can be published by 2026-10-15.
+ANNUAL_MONTHS = ("2026-04", "2026-05", "2026-06", "2026-07")
+# Monthly profit actuals (target 100, or 50 for TST001 at P2). Policy A scores:
+# >100 5, >90 4, >80 3, >70 2, >50 1. TST001 is weighted P1 60 / P2 40.
+ANNUAL_ACTUALS = {
+    1: {("010", "P1"): 105, ("001", "P1"): 95, ("001", "P2"): 45, ("002", "P2"): 92},
+    2: {("010", "P1"): 95, ("001", "P1"): 85, ("001", "P2"): 48, ("002", "P2"): 80},
+    3: {("010", "P1"): 101, ("001", "P1"): 101, ("001", "P2"): 51, ("002", "P2"): 72},
+    4: {("010", "P1"): 75, ("001", "P1"): 92, ("001", "P2"): 44, ("002", "P2"): 60},
+}
+# Quarterly scores: TST010 5, 4, 5, 2 -> 4.00; TST001 3.6, 3.4, 5.0, 3.6 -> 3.90;
+# TST002 4, 2, 2, 1 -> 2.25 (equally weighted quarters).
+
+
+@dataclass
+class AnnualEnv:
+    """Cycle TST-AN (2026-04-01..07-31) with four one-month quarters. Quality
+    employees TST010 (P1), TST001 (P1 primary, P2 supporting) and TST002 (P2),
+    one KPI each (profit). A company-wide normalization policy puts cohorts
+    below 5 in MIDDLE, so no placements are needed. Clients: head (Quality,
+    all plants), hr (HR Head, GLOBAL), chro, admin (GLOBAL), hr_p2 (HR Head,
+    P2), hr_reader (HR, P2)."""
+
+    env: KpiEnv
+    cycle: PmsCycle
+    quarters: list[PmsCycleQuarter]
+    policy: MatrixVersion
+    users: dict[str, User]
+    clients: dict[str, TestClient]
+    db: Session
+    sheets: dict[tuple[int, str, str], int] = field(default_factory=dict)
+
+    def employee_id(self, code: str) -> int:
+        return self.env.org.employees[code.removeprefix("TST")].id
+
+    def quarter(self, n: int) -> PmsCycleQuarter:
+        return self.quarters[n - 1]
+
+    def ok(self, resp, code: int = 200):
+        assert resp.status_code == code, resp.text
+        return resp.json() if resp.content else None
+
+    def publish_quarter(self, n: int, actuals: dict | None = None) -> None:
+        """Run quarter n through Stage L: sheets, data, review, weights,
+        normalization, publication."""
+        actuals = actuals or ANNUAL_ACTUALS[n]
+        q, c = self.quarter(n), self.clients
+        for emp, plant in actuals:
+            created = self.ok(c["head"].post("/api/kpi/sheets", json={
+                "assignment_id": self.env.assignment_id(self.db, emp, (plant, "Q")),
+                "quarter_id": q.id}), 201)
+            target = "50" if (emp, plant) == ("001", "P2") else "100"
+            self.ok(c["head"].put(f"/api/kpi/sheets/{created['id']}", json={"items": [
+                {"kpi_definition_id": self.env.kpis["profit"].id, "weightage": "100",
+                 "target_value": target}]}))
+            self.ok(c["head"].post(f"/api/kpi/sheets/{created['id']}/publish"))
+            self.sheets[(n, emp, plant)] = created["id"]
+        self.ok(c["chro"].post(f"/api/kpi/quarters/{q.id}/start-scoring"))
+        rows = [[f"TST{emp}", f"TST-{plant}", "TST-Q", "TKPI-1", ANNUAL_MONTHS[n - 1], value]
+                for (emp, plant), value in actuals.items()]
+        self.ok(c["head"].post("/api/kpi/data/confirm", data={
+            "quarter_id": str(q.id), "period": ANNUAL_MONTHS[n - 1]},
+            files={"file": ("m.csv", csv_bytes(rows), "text/csv")}))
+        self.ok(c["head"].post("/api/kpi/results/calculate", json={"quarter_id": q.id}))
+        self.step(q, "DEPARTMENT_REVIEW")
+        for key, sheet_id in self.sheets.items():
+            if key[0] == n:
+                self.ok(c["head"].post(f"/api/kpi/results/{sheet_id}/review"))
+        if ("001", "P2") in actuals:
+            self.ok(c["hr"].put(
+                f"/api/kpi/quarters/{q.id}/employees/{self.employee_id('001')}/weights",
+                json={"weights": [
+                    {"assignment_id": self.env.assignment_id(self.db, "001", ("P1", "Q")),
+                     "weight": "60"},
+                    {"assignment_id": self.env.assignment_id(self.db, "001", ("P2", "Q")),
+                     "weight": "40"}]}))
+        self.step(q, "NORMALIZATION")
+        for run in self.ok(c["hr"].get(f"/api/kpi/quarters/{q.id}/normalization")):
+            self.ok(c["chro"].post(f"/api/kpi/normalization-runs/{run['id']}/approve", json={}))
+        self.step(q, "READY")
+        self.ok(c["chro"].post(f"/api/kpi/quarters/{q.id}/publish"))
+
+    def step(self, q: PmsCycleQuarter, to: str) -> None:
+        self.ok(self.clients["hr"].post(f"/api/kpi/quarters/{q.id}/transition",
+                                        json={"to": to, "reason": None}))
+
+    def publish_all(self) -> None:
+        for n in (1, 2, 3, 4):
+            self.publish_quarter(n)
+
+    def calculate(self, client: str = "hr", **body) -> dict:
+        return self.ok(self.clients[client].post(f"/api/annual/cycles/{self.cycle.id}/calculate",
+                                                 json=body))
+
+    def rows(self, client: str = "hr") -> dict[str, dict]:
+        found = self.ok(self.clients[client].get(f"/api/annual/cycles/{self.cycle.id}/employees"))
+        return {r["employee"]["employee_code"]: r for r in found}
+
+    def detail(self, code: str, client: str = "hr") -> dict:
+        return self.ok(self.clients[client].get(
+            f"/api/annual/cycles/{self.cycle.id}/employees/{self.employee_id(code)}"))
+
+
+@pytest.fixture
+def annual_env(kpi_env: KpiEnv, as_role, db: Session, fixed_today) -> AnnualEnv:
+    o = kpi_env.org
+    o.employees["010"] = Employee(employee_code="TST010", full_name="Test Person 010")
+    db.add(o.employees["010"])
+    db.flush()
+    add_assignment(db, o, "010", ("P1", "Q"), is_primary=True)
+    cycle = PmsCycle(code="TST-AN", name="Test annual cycle", start_date=date(2026, 4, 1),
+                     end_date=date(2026, 7, 31))
+    db.add(cycle)
+    db.flush()
+    quarters = []
+    for n, month in enumerate(ANNUAL_MONTHS, 1):
+        y, m = (int(x) for x in month.split("-"))
+        end = date(y, m + 1, 1) - timedelta(days=1)
+        quarters.append(PmsCycleQuarter(cycle_id=cycle.id, quarter_number=n, name=f"TA{n}",
+                                        start_date=date(y, m, 1), end_date=end))
+    db.add_all(quarters)
+    db.flush()
+    roles = {
+        "head": [("DEPT_HEAD", [(ScopeType.DEPARTMENT, None, o.departments["Q"])])],
+        "hr": [("HR_HEAD", [(ScopeType.GLOBAL, None, None)])],
+        "chro": [("CHRO", [(ScopeType.GLOBAL, None, None)])],
+        "admin": [("ADMIN", [(ScopeType.GLOBAL, None, None)])],
+        "hr_p2": [("HR_HEAD", [(ScopeType.PLANT, o.plants["P2"], None)])],
+        "hr_reader": [("HR", [(ScopeType.PLANT, o.plants["P2"], None)])],
+    }
+    users, clients = {}, {}
+    for key, grants in roles.items():
+        users[key], clients[key] = as_role(f"tst.an.{key}", grants)
+    policy = published_normalization_policy(db)
+    return AnnualEnv(kpi_env, cycle, quarters, policy, users, clients, db)

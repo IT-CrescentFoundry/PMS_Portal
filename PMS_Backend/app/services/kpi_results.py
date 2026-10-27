@@ -16,7 +16,10 @@ set only when every KPI is scored from every expected month. Until then the
 calculated score is provisional.
 
 Lifecycle: CALCULATED -> REVIEWED (the manager; kpi:write) -> PUBLISHED,
-which is final. Since Stage L, results are published only with their whole
+which is final. Since Stage M a published result may be followed by a
+corrected version (app/services/versions.py): a new row with a higher
+version_no, reviewed in the correction's own steps; the published row is
+SUPERSEDED only when the corrected version is published. Since Stage L, results are published only with their whole
 quarter, after department review and normalization (app/services/quarterly.py);
 there is no per-sheet publication. A result is stale when its inputs changed
 after calculation; stale or incomplete results can't be reviewed. Data and
@@ -60,7 +63,7 @@ from app.models import (
     ScoreOverrideStatus,
     ScoreResultStatus,
 )
-from app.services import clock, scoring
+from app.services import clock, scoring, versions
 from app.services import matrix_rules as rules
 from app.services import matrix_service
 from app.services.audit import AuditActor, record_event
@@ -114,7 +117,31 @@ def get_sheet(db: Session, principal: Principal, sheet_id: int) -> KpiSheet:
 
 
 def result_for(db: Session, sheet_id: int) -> KpiSheetResult | None:
-    return db.scalars(select(KpiSheetResult).where(KpiSheetResult.sheet_id == sheet_id)).one_or_none()
+    """The working result: the highest version."""
+    return db.scalars(select(KpiSheetResult).where(KpiSheetResult.sheet_id == sheet_id)
+                      .order_by(KpiSheetResult.version_no.desc()).limit(1)).first()
+
+
+def published_result(db: Session, sheet_id: int) -> KpiSheetResult | None:
+    return db.scalars(select(KpiSheetResult).where(
+        KpiSheetResult.sheet_id == sheet_id,
+        KpiSheetResult.status == ScoreResultStatus.PUBLISHED)).one_or_none()
+
+
+def result_versions(db: Session, sheet_id: int) -> list[KpiSheetResult]:
+    return list(db.scalars(select(KpiSheetResult).where(KpiSheetResult.sheet_id == sheet_id)
+                           .order_by(KpiSheetResult.version_no)).all())
+
+
+def latest_results(db: Session, sheet_ids: Sequence[int]) -> dict[int, KpiSheetResult]:
+    """{sheet: working result (highest version)}."""
+    return versions.latest(db.scalars(select(KpiSheetResult).where(
+        KpiSheetResult.sheet_id.in_(list(sheet_ids) or [0]))).all(), lambda r: r.sheet_id)
+
+
+def phase_of(db: Session, sheet: KpiSheet, result: KpiSheetResult | None):
+    """The review step that applies to a result (its version's phase)."""
+    return versions.phase(db, sheet.quarter, result.version_no if result else 1)
 
 
 def published(db: Session, sheet_id: int) -> bool:
@@ -187,7 +214,9 @@ def _item(sheet: KpiSheet, item: KpiSheetItem, values: dict[date, KpiMonthlyValu
         "months_expected": [f"{m:%Y-%m}" for m in months],
         "months_missing": [],
         "monthly": [{"month": f"{v.period_month:%Y-%m}", "actual": _text(v.actual_value),
-                     "inputs": v.input_values, "import_id": v.data_import_id, "row": v.source_row}
+                     "inputs": v.input_values, "import_id": v.data_import_id, "row": v.source_row,
+                     **({"correction_id": v.correction_id}
+                        if isinstance(v, versions.CorrectedValue) else {})}
                     for v in monthly],
         "quarterly_actual": None, "inputs": {}, "matrix": None, "legacy_rule": legacy,
         "rule": None, "used_default": False, "score": None, "contribution": None,
@@ -291,12 +320,14 @@ def _legacy_score(item: KpiSheetItem, actual: Decimal | None, target: Decimal | 
     return scoring.evaluate(snapshot, achievement=actual / target * HUNDRED)
 
 
-def _values(db: Session, sheet_ids: Sequence[int]) -> dict[int, dict[int, dict[date, KpiMonthlyValue]]]:
-    grouped: dict[int, dict[int, dict[date, KpiMonthlyValue]]] = {}
+def _values(db: Session, sheet_ids: Sequence[int]) -> dict[int, dict[int, dict[date, Any]]]:
+    """Stored monthly values with every approved correction applied on top."""
+    grouped: dict[int, dict[int, dict[date, Any]]] = {}
     for v in db.scalars(select(KpiMonthlyValue).where(KpiMonthlyValue.sheet_id.in_(
             list(sheet_ids) or [0]))).all():
         grouped.setdefault(v.sheet_id, {}).setdefault(v.kpi_definition_id, {})[v.period_month] = v
-    return grouped
+    overlay = versions.value_overlay(db, sheet_ids)
+    return versions.merge_values(grouped, overlay) if overlay else grouped
 
 
 def inputs_hash(sheet: KpiSheet, values: dict[int, dict[date, KpiMonthlyValue]]) -> str:
@@ -344,8 +375,7 @@ def calculate(db: Session, principal: Principal, actor: AuditActor, quarter_id: 
     if sheet_ids is not None and len(sheets) != len(set(sheet_ids)):
         raise NotFoundError("KPI sheet", ", ".join(str(i) for i in sorted(set(sheet_ids))))
     values = _values(db, [s.id for s in sheets])
-    results = {r.sheet_id: r for r in db.scalars(select(KpiSheetResult).where(
-        KpiSheetResult.sheet_id.in_([s.id for s in sheets] or [0]))).all()}
+    results = latest_results(db, [s.id for s in sheets])
     counts = {"calculated": 0, "unchanged": 0, "published": 0, "complete": 0}
     for sheet in sheets:
         result = results.get(sheet.id)
@@ -447,10 +477,11 @@ def is_own(principal: Principal, sheet: KpiSheet) -> bool:
 
 def get_view(db: Session, principal: Principal, sheet_id: int) -> ResultView:
     sheet = get_sheet(db, principal, sheet_id)
+    if self_only(principal, sheet):
+        # The employee sees the published version only, never work in progress.
+        result = published_result(db, sheet.id)
+        return ResultView(sheet, result, False, None, None)
     result = result_for(db, sheet.id)
-    if self_only(principal, sheet) and (result is None
-                                        or result.status != ScoreResultStatus.PUBLISHED):
-        return ResultView(sheet, None, False, None, None)  # shown once published
     overrides = _overrides(db, [result.id]).get(result.id, []) if result else []
     return _view(sheet, result, _values(db, [sheet.id]).get(sheet.id, {}), overrides)
 
@@ -473,8 +504,7 @@ def list_views(db: Session, principal: Principal, quarter_id: int, *, plant_id: 
         stmt = stmt.where(or_(Employee.employee_code.like(like), Employee.full_name.like(like)))
     sheets = db.scalars(stmt).unique().all()
     values = _values(db, [s.id for s in sheets])
-    results = {r.sheet_id: r for r in db.scalars(select(KpiSheetResult).where(
-        KpiSheetResult.sheet_id.in_([s.id for s in sheets] or [0]))).all()}
+    results = latest_results(db, [s.id for s in sheets])
     overrides = _overrides(db, [r.id for r in results.values()])
     return [_view(s, results.get(s.id), values.get(s.id, {}),
                   overrides.get(results[s.id].id, []) if s.id in results else [])
@@ -492,8 +522,7 @@ def quarter_views(db: Session, quarter_id: int, employee_id: int | None = None) 
         stmt = stmt.where(EmployeeAssignment.employee_id == employee_id)
     sheets = db.scalars(stmt).unique().all()
     values = _values(db, [s.id for s in sheets])
-    results = {r.sheet_id: r for r in db.scalars(select(KpiSheetResult).where(
-        KpiSheetResult.sheet_id.in_([s.id for s in sheets] or [0]))).all()}
+    results = latest_results(db, [s.id for s in sheets])
     overrides = _overrides(db, [r.id for r in results.values()])
     return [_view(s, results.get(s.id), values.get(s.id, {}),
                   overrides.get(results[s.id].id, []) if s.id in results else [])
@@ -509,7 +538,7 @@ def _ready_view(db: Session, principal: Principal, sheet_id: int, permission: Pe
         raise PermissionDeniedError(f"You cannot {action} scores for this plant and department.")
     if view.result is None:
         raise ConflictError("Calculate the score first.")
-    require_review(view.sheet.quarter)
+    require_review(view.sheet.quarter, phase_of(db, view.sheet, view.result))
     if view.sheet.status != KpiSheetStatus.LOCKED:
         raise ConflictError("Scores can be reviewed and published only after quarterly scoring "
                             "has started (the sheet is locked).")
@@ -559,7 +588,8 @@ def publish(db: Session, principal: Principal, actor: AuditActor, sheet_id: int)
 
 
 def publish_result(principal: Principal, result: KpiSheetResult) -> None:
-    """One result, as part of the quarter's publication (quarterly.publish)."""
+    """One result, as part of the quarter's publication (quarterly.publish) or
+    of a corrected version's (corrections.publish)."""
     result.published_score = (result.override_score if result.override_score is not None
                               else result.final_score)
     result.status = ScoreResultStatus.PUBLISHED
@@ -602,8 +632,8 @@ def request_override(db: Session, principal: Principal, actor: AuditActor, sheet
     if not _allows(principal, Permission.KPI_WRITE, view.sheet):
         raise PermissionDeniedError("You cannot request score overrides for this plant and "
                                     "department.")
-    require_review(view.sheet.quarter)
     result = view.result
+    require_review(view.sheet.quarter, phase_of(db, view.sheet, result))
     if result is None or result.status == ScoreResultStatus.PUBLISHED:
         raise ConflictError("Only a calculated, unpublished score can be overridden.")
     if view.stale or not result.is_complete:
@@ -651,7 +681,7 @@ def approve_override(db: Session, principal: Principal, actor: AuditActor, overr
                                     "this plant.")
     if override.status != ScoreOverrideStatus.PENDING:
         raise ConflictError("This override is no longer awaiting approval.")
-    require_review(sheet.quarter)
+    require_review(sheet.quarter, phase_of(db, sheet, override.result))
     if principal.user_id == override.requested_by_user_id:
         raise PermissionDeniedError("The requester cannot approve their own override.")
     other = "plant_approved_by_user_id" if side == "HR_HEAD" else "hr_approved_by_user_id"
@@ -693,7 +723,7 @@ def reject_override(db: Session, principal: Principal, actor: AuditActor, overri
         raise PermissionDeniedError("Only an HR Head or Plant Head for this plant can reject.")
     if override.status != ScoreOverrideStatus.PENDING:
         raise ConflictError("This override is no longer awaiting approval.")
-    require_review(sheet.quarter)
+    require_review(sheet.quarter, phase_of(db, sheet, override.result))
     if principal.user_id == override.requested_by_user_id:
         raise PermissionDeniedError("The requester cannot decide their own override.")
     if not reason.strip():

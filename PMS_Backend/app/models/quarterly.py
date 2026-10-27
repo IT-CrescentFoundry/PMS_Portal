@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     JSON,
     CheckConstraint,
+    Computed,
     DateTime,
     Enum,
     ForeignKey,
@@ -77,15 +78,22 @@ class AssignmentScoreWeight(TimestampMixin, Base):
 
 
 class NormalizationRun(TimestampMixin, Base):
-    """One cohort of a quarter under one normalization policy version."""
+    """One cohort of a quarter under one normalization policy version.
+    A correction of the published quarter renormalizes the cohorts it affects
+    as runs of its own version (Stage M)."""
 
     __tablename__ = "normalization_runs"
     __table_args__ = (
-        UniqueConstraint("cycle_quarter_id", "cohort_key", name="uq_normalization_runs_cohort"),
+        UniqueConstraint("cycle_quarter_id", "cohort_key", "version_no",
+                         name="uq_normalization_runs_version"),
+        UniqueConstraint("cycle_quarter_id", "published_cohort",
+                         name="uq_normalization_runs_published"),
+        CheckConstraint("version_no >= 1", name="version_range"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cycle_quarter_id: Mapped[int] = mapped_column(ForeignKey("pms_cycle_quarters.id"))
+    version_no: Mapped[int] = mapped_column(SmallInteger, default=1, server_default=text("1"))
     matrix_version_id: Mapped[int] = mapped_column(ForeignKey("matrix_versions.id"), index=True)
     cohort_level: Mapped[CohortLevel] = mapped_column(
         Enum(CohortLevel, name="cohort_level", values_callable=enum_values)
@@ -114,6 +122,9 @@ class NormalizationRun(TimestampMixin, Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime)
     approval_note: Mapped[str | None] = mapped_column(String(1000))
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    published_cohort: Mapped[str | None] = mapped_column(
+        String(80), Computed("CASE WHEN status = 'PUBLISHED' THEN cohort_key END", persisted=True)
+    )
 
     quarter: Mapped[PmsCycleQuarter] = relationship()
     matrix_version: Mapped[MatrixVersion] = relationship()
@@ -122,11 +133,17 @@ class NormalizationRun(TimestampMixin, Base):
 
 
 class EmployeeQuarterResult(TimestampMixin, Base):
-    """One employee's consolidated quarterly score and normalization outcome."""
+    """One employee's consolidated quarterly score and normalization outcome.
+    Versioned like kpi_sheet_results: a correction adds rows of its own
+    version; at most one row per employee and quarter is PUBLISHED."""
 
     __tablename__ = "employee_quarter_results"
     __table_args__ = (
-        UniqueConstraint("cycle_quarter_id", "employee_id", name="uq_employee_quarter_results"),
+        UniqueConstraint("cycle_quarter_id", "employee_id", "version_no",
+                         name="uq_employee_quarter_results_version"),
+        UniqueConstraint("cycle_quarter_id", "published_employee",
+                         name="uq_employee_quarter_results_published"),
+        CheckConstraint("version_no >= 1", name="version_range"),
         CheckConstraint("final_score BETWEEN 0 AND 5", name="final_score_range"),
         CheckConstraint(
             "normalized_rating IS NULL OR normalized_rating BETWEEN 0 AND 5",
@@ -137,6 +154,7 @@ class EmployeeQuarterResult(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     cycle_quarter_id: Mapped[int] = mapped_column(ForeignKey("pms_cycle_quarters.id"))
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    version_no: Mapped[int] = mapped_column(SmallInteger, default=1, server_default=text("1"))
     status: Mapped[EmployeeResultStatus] = mapped_column(
         Enum(EmployeeResultStatus, name="employee_result_status", values_callable=enum_values),
         default=EmployeeResultStatus.DRAFT,
@@ -173,6 +191,9 @@ class EmployeeQuarterResult(TimestampMixin, Base):
     rating_explanation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     published_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    published_employee: Mapped[int | None] = mapped_column(
+        Computed("CASE WHEN status = 'PUBLISHED' THEN employee_id END", persisted=True)
+    )
 
     employee: Mapped[Employee] = relationship()
     primary_assignment: Mapped[EmployeeAssignment] = relationship()

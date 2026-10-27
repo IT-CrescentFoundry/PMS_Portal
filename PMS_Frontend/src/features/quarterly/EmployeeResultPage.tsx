@@ -12,6 +12,7 @@ import { useAction } from '../../hooks/useAction'
 import { useApiQuery } from '../../hooks/useApiQuery'
 import { getEmployeeResult, setContributionWeights } from '../../services/quarterlyApi'
 import type { EmployeeResult } from '../../types/api'
+import { formatDate } from '../../utils/format'
 import { unitLabel } from '../../utils/labels'
 import { parseId } from '../../utils/params'
 import { InvalidLink } from '../common/InvalidLink'
@@ -73,7 +74,17 @@ function ResultView({ initial }: { initial: EmployeeResult }) {
                                         },
                                         { label: result.employee.full_name },
                                 ]}
-                                meta={<Badge tone={status.tone}>{status.label}</Badge>}
+                                meta={
+                                        <>
+                                                <Badge tone={status.tone}>{status.label}</Badge>
+                                                {result.version_no !== null &&
+                                                        result.version_no > 1 && (
+                                                                <Badge tone="info">
+                                                                        Version {result.version_no}
+                                                                </Badge>
+                                                        )}
+                                        </>
+                                }
                         />
                         <div className="space-y-4">
                                 {result.issues.length > 0 && (
@@ -205,6 +216,60 @@ function ResultView({ initial }: { initial: EmployeeResult }) {
                                 </section>
                                 {result.can_set_weights && (
                                         <WeightsEditor result={result} onSaved={setResult} />
+                                )}
+                                {result.versions.length > 1 && (
+                                        <Table caption="Versions of this quarterly result">
+                                                <thead>
+                                                        <tr>
+                                                                <Th>Version</Th>
+                                                                <Th>Status</Th>
+                                                                <Th align="right">Final score</Th>
+                                                                <Th>Group</Th>
+                                                                <Th align="right">
+                                                                        Normalized rating
+                                                                </Th>
+                                                                <Th>Published</Th>
+                                                        </tr>
+                                                </thead>
+                                                <TBody>
+                                                        {result.versions.map((v) => (
+                                                                <tr key={v.version_no}>
+                                                                        <Td>{v.version_no}</Td>
+                                                                        <Td>
+                                                                                {
+                                                                                        (
+                                                                                                EMPLOYEE_STATUS[
+                                                                                                        v
+                                                                                                                .status
+                                                                                                ] ?? {
+                                                                                                        label: v.status,
+                                                                                                }
+                                                                                        ).label
+                                                                                }
+                                                                        </Td>
+                                                                        <Td align="right">
+                                                                                {scoreText(
+                                                                                        v.final_score,
+                                                                                )}
+                                                                        </Td>
+                                                                        <Td>
+                                                                                {v.group_key ?? '—'}
+                                                                        </Td>
+                                                                        <Td align="right">
+                                                                                {v.normalized_rating ??
+                                                                                        '—'}
+                                                                        </Td>
+                                                                        <Td>
+                                                                                {v.published_at
+                                                                                        ? formatDate(
+                                                                                                  v.published_at,
+                                                                                          )
+                                                                                        : '—'}
+                                                                        </Td>
+                                                                </tr>
+                                                        ))}
+                                                </TBody>
+                                        </Table>
                                 )}
                                 {outcome && (
                                         <section

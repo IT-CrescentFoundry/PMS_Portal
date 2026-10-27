@@ -96,6 +96,11 @@ function CohortView({ initial }: { initial: Cohort }) {
                                 meta={
                                         <>
                                                 <CohortStatusBadge status={cohort.status} />
+                                                {cohort.version_no > 1 && (
+                                                        <Badge tone="info">
+                                                                Version {cohort.version_no}
+                                                        </Badge>
+                                                )}
                                                 {cohort.small_cohort && <Badge>Small cohort</Badge>}
                                                 <Link
                                                         to={`/matrices/${cohort.policy.matrix_id}/versions/${cohort.policy.version_id}`}

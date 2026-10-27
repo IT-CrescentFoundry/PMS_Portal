@@ -87,6 +87,7 @@ export const RESULT_STATUS: Record<ScoreResultStatus, { label: string; tone: Bad
         CALCULATED: { label: 'Calculated · awaiting review', tone: 'warning' },
         REVIEWED: { label: 'Reviewed · awaiting publication', tone: 'info' },
         PUBLISHED: { label: 'Published (final)', tone: 'success' },
+        SUPERSEDED: { label: 'Superseded by a correction', tone: 'neutral' },
 }
 
 export const ITEM_STATUS: Record<ResultItemStatus, { label: string; tone: BadgeTone }> = {

@@ -33,7 +33,9 @@ from app.schemas.quarterly import (
     EmployeeResultRead,
     GroupDistribution,
     MemberRead,
+    EmployeeVersionRead,
     NormalizationOutcome,
+    OpenCorrection,
     OwnOutcome,
     OwnSheet,
     PlacementRequest,
@@ -48,6 +50,7 @@ from app.schemas.quarterly import (
     TransitionRequest,
     WeightsWrite,
 )
+from app.auth.permissions import Permission
 from app.services import kpi_sheets, normalization, quarterly, sheet_comments
 from app.services import matrix_rules as rules
 from app.services import normalization_policy as policy
@@ -84,14 +87,20 @@ def _overview(db: Session, principal: Principal, quarter_id: int) -> QuarterOver
     ov = quarterly.overview(db, principal, quarter_id)
     q = ov.quarter
     publisher = _users(db, {q.published_by_user_id}).get(q.published_by_user_id or 0)
+    c = ov.open_correction
     return QuarterOverview(
         quarter=_quarter(q), next_status=ov.next_status, previous_status=ov.previous_status,
         sheets=SheetProgress(**ov.sheets), employees=EmployeeProgress(**ov.employees),
         cohorts=CohortProgress(**ov.cohorts), unscorable_sheets=ov.unscorable_sheets,
         blockers=ov.blockers, feedback_enabled=q.feedback_enabled, published_at=q.published_at,
         published_by=publisher,
-        actions=QuarterActions(can_advance=ov.can_advance, can_return=ov.can_return,
-                               can_publish=ov.can_publish))
+        actions=QuarterActions(
+            can_advance=ov.can_advance, can_return=ov.can_return, can_publish=ov.can_publish,
+            can_request_correction=ov.published_version is not None and c is None
+            and not principal.scope_for(Permission.QUARTER_CORRECTION_REQUEST).is_empty),
+        published_version=ov.published_version,
+        open_correction=OpenCorrection(id=c.id, status=c.status.value, version_no=c.version_no)
+        if c else None)
 
 
 @router.get("/quarters/{quarter_id}/overview", response_model=QuarterOverview)
@@ -172,7 +181,7 @@ def _employee_reads(db: Session, principal: Principal,
                 home_department=departments[row.department_id], weights_source=row.weights_source,
                 calculated_score=_text(row.calculated_score), final_score=_text(row.final_score),
                 ready=True, issues=[], components=components, normalization=outcome,
-                can_set_weights=False))
+                can_set_weights=False, version_no=row.version_no))
             continue
         c = v.consolidation
         components = []
@@ -217,7 +226,16 @@ def employee_results(quarter_id: int, db: DbSession, principal: CurrentPrincipal
 @router.get("/quarters/{quarter_id}/employees/{employee_id}", response_model=EmployeeResultRead)
 def employee_result(quarter_id: int, employee_id: int, db: DbSession, principal: CurrentPrincipal):
     view = quarterly.get_employee_view(db, principal, quarter_id, employee_id)
-    return _employee_reads(db, principal, [view])[0]
+    read = _employee_reads(db, principal, [view])[0]
+    rows = db.scalars(select(EmployeeQuarterResult).where(
+        EmployeeQuarterResult.cycle_quarter_id == quarter_id,
+        EmployeeQuarterResult.employee_id == employee_id)
+        .order_by(EmployeeQuarterResult.version_no)).all()
+    read.versions = [EmployeeVersionRead(
+        version_no=r.version_no, status=r.status.value, final_score=_text(r.final_score),
+        group_key=r.group_key, normalized_rating=_text(r.normalized_rating),
+        published_at=r.published_at) for r in rows]
+    return read
 
 
 @router.put("/quarters/{quarter_id}/employees/{employee_id}/weights",
@@ -240,7 +258,8 @@ def _summary_fields(db: Session, view: normalization.RunView) -> dict[str, Any]:
     users = _users(db, {run.approved_by_user_id})
     distribution = normalization.describe_targets(view)
     return dict(
-        id=run.id, status=run.status, cohort_label=view.label, cohort_level=run.cohort_level,
+        id=run.id, status=run.status, version_no=run.version_no, cohort_label=view.label,
+        cohort_level=run.cohort_level,
         policy=PolicyVersionRef(matrix_id=version.matrix_id, code=version.matrix.code,
                                 name=version.matrix.name, version_id=version.id,
                                 version_no=version.version_no),

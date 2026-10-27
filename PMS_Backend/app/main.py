@@ -11,7 +11,9 @@ from app.auth.rate_limit import LoginRateLimiter
 from app.config import get_auth_settings, get_security_settings
 from app.db import engine
 from app.routers import (
+    annual,
     auth,
+    corrections,
     employees,
     jd,
     kpi,
@@ -63,6 +65,8 @@ app.include_router(kpi.router)
 app.include_router(kpi_scores.router)
 app.include_router(matrix.router)
 app.include_router(quarterly.router)
+app.include_router(corrections.router)
+app.include_router(annual.router)
 
 
 @app.exception_handler(NotFoundError)

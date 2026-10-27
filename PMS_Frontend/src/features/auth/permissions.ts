@@ -18,6 +18,11 @@ export const PERMISSION_MATRIX_READ = 'matrix:read'
 export const PERMISSION_MATRIX_WRITE = 'matrix:write'
 export const PERMISSION_MATRIX_APPROVE = 'matrix:approve'
 export const PERMISSION_SCORE_PUBLISH = 'score:publish'
+export const PERMISSION_ANNUAL_READ = 'annual:read'
+export const PERMISSION_ANNUAL_DEVIATION_REQUEST = 'annual:deviation_request'
+export const PERMISSION_ANNUAL_APPROVE = 'annual:approve'
+export const PERMISSION_CORRECTION_REQUEST = 'quarter:correction_request'
+export const PERMISSION_CORRECTION_APPROVE = 'quarter:correction_approve'
 
 /** Roles that may fill HR-only JD fields (available budget). Mirrors the API. */
 const HR_ROLE_CODES = new Set(['HR', 'HR_HEAD', 'CHRO', 'ADMIN'])
@@ -86,6 +91,22 @@ export function canApproveMatrices(user: CurrentUser): boolean {
 /** HR Head / CHRO: publish reviewed quarterly scores (final). */
 export function canPublishScores(user: CurrentUser): boolean {
         return has(user, PERMISSION_SCORE_PUBLISH)
+}
+
+/** HR, HR Head, Admin, CHRO: annual results, deviations and history (within scope). */
+export function canReadAnnual(user: CurrentUser): boolean {
+        return has(user, PERMISSION_ANNUAL_READ)
+}
+
+/** Takes part in corrections of published quarters: requests (HR Head), decides
+ * (CHRO), or moves and publishes them (company-wide HR authority). */
+export function canWorkOnCorrections(user: CurrentUser): boolean {
+        return [
+                PERMISSION_CORRECTION_REQUEST,
+                PERMISSION_CORRECTION_APPROVE,
+                PERMISSION_QUARTER_START,
+                PERMISSION_SCORE_PUBLISH,
+        ].some((p) => has(user, p))
 }
 
 /** May open their own employee record. */

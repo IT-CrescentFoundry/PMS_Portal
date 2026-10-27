@@ -29,6 +29,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AuditActorType, AuditEvent, User
@@ -152,3 +153,14 @@ def record_event(
     db.add(event)
     db.flush()  # assigns the id and surfaces constraint errors now
     return event
+
+
+def history(db: Session, entity_type: str, entity_ids: Iterable[int | str],
+            limit: int = 200) -> list[AuditEvent]:
+    """Audit records of some records of one type, newest first (read-only)."""
+    ids = sorted({str(i) for i in entity_ids})
+    if not ids:
+        return []
+    return list(db.scalars(select(AuditEvent).where(
+        AuditEvent.entity_type == entity_type, AuditEvent.entity_id.in_(ids))
+        .order_by(AuditEvent.id.desc()).limit(limit)).all())

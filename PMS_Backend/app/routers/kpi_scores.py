@@ -32,9 +32,10 @@ from app.schemas.kpi_scores import (
     ResultRead,
     ResultRow,
     ResultSheet,
+    ResultVersion,
 )
 from app.schemas.organization import DepartmentRef, PlantRef
-from app.services import kpi_data, kpi_results
+from app.services import kpi_data, kpi_results, versions
 from app.services import matrix_rules as rules
 from app.services.errors import Issue, ValidationFailedError
 from app.services.kpi_sheets import COLLECTION_STATUSES, REVIEW_STATUSES, get_quarter
@@ -172,7 +173,8 @@ def _brief(view: kpi_results.ResultView) -> ResultBrief | None:
     r = view.result
     if r is None:
         return None
-    return ResultBrief(status=r.status, is_complete=r.is_complete, stale=view.stale,
+    return ResultBrief(status=r.status, version_no=r.version_no, is_complete=r.is_complete,
+                       stale=view.stale,
                        calculated_score=_num(r.calculated_score), final_score=_num(r.final_score),
                        override_score=_num(r.override_score),
                        published_score=_num(r.published_score), calculated_at=r.calculated_at,
@@ -206,8 +208,9 @@ def _result_read(db: Session, principal: Principal, view: kpi_results.ResultView
     writer = principal.scope_for(Permission.KPI_WRITE).allows_unit(unit.plant_id, unit.department_id)
     ready = (result is not None and not view.stale and result.is_complete
              and sheet.status.value == "LOCKED" and view.pending_override is None)
-    collecting = sheet.quarter.status in COLLECTION_STATUSES
-    reviewing = sheet.quarter.status in REVIEW_STATUSES
+    phase = kpi_results.phase_of(db, sheet, result)
+    collecting = phase in COLLECTION_STATUSES
+    reviewing = phase in REVIEW_STATUSES
     users = _users(db, {result.calculated_by_user_id, result.reviewed_by_user_id,
                         result.published_by_user_id} if result else set())
     explanation = result.explanation if result else {}
@@ -233,7 +236,20 @@ def _result_read(db: Session, principal: Principal, view: kpi_results.ResultView
             can_request_override=writer and reviewing and result is not None and not view.stale
             and result.is_complete and result.status != ScoreResultStatus.PUBLISHED
             and view.pending_override is None),
+        versions=[] if kpi_results.self_only(principal, sheet) else _versions(db, sheet),
     )
+
+
+def _versions(db: Session, sheet: KpiSheet) -> list[ResultVersion]:
+    rows = kpi_results.result_versions(db, sheet.id)
+    corrections = {c.version_no: c.id for c in (
+        versions.correction_of(db, sheet.cycle_quarter_id, r.version_no)
+        for r in rows if r.version_no > 1) if c is not None}
+    return [ResultVersion(version_no=r.version_no, status=r.status,
+                          final_score=_num(r.final_score), override_score=_num(r.override_score),
+                          published_score=_num(r.published_score), calculated_at=r.calculated_at,
+                          published_at=r.published_at, correction_id=corrections.get(r.version_no))
+            for r in rows]
 
 
 @router.post("/results/calculate", response_model=CalculateResult)

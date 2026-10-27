@@ -29,6 +29,7 @@ import { canApproveDeviationAsHR, canApproveDeviationAsPlant } from '../auth/per
 import { InvalidLink } from '../common/InvalidLink'
 import { AGGREGATION_LABELS } from '../kpi/kpiLabels'
 import { Approval, SheetStatusBadge } from '../kpi/StatusBadges'
+import { ResultVersions } from '../corrections/ResultVersions'
 import { CommentsPanel } from '../quarterly/CommentsPanel'
 import { ItemStatusBadge, OverrideStatusBadge, ResultStatusBadge } from './ScoreBadges'
 import { monthLabel, scoreText } from './scoreLabels'
@@ -109,6 +110,11 @@ function ResultView({ initial, reload }: { initial: ResultDetail; reload: () => 
                                                         status={result?.status ?? null}
                                                 />
                                                 <SheetStatusBadge status={detail.sheet.status} />
+                                                {result && result.version_no > 1 && (
+                                                        <Badge tone="info">
+                                                                Version {result.version_no}
+                                                        </Badge>
+                                                )}
                                         </>
                                 }
                                 actions={
@@ -283,6 +289,23 @@ function ResultView({ initial, reload }: { initial: ResultDetail; reload: () => 
                                                 : {detail.applied_override.reason}
                                         </Alert>
                                 )}
+
+                                {result &&
+                                        result.version_no > 1 &&
+                                        result.status !== 'PUBLISHED' &&
+                                        result.status !== 'SUPERSEDED' && (
+                                                <Alert
+                                                        tone="info"
+                                                        title={`Corrected version ${result.version_no} under review`}
+                                                >
+                                                        This result was recalculated by an approved
+                                                        correction of the published quarter. The
+                                                        published version stays current until the
+                                                        corrected version is reviewed, normalized
+                                                        and published.
+                                                </Alert>
+                                        )}
+                                <ResultVersions versions={detail.versions} />
 
                                 {detail.sheet.status === 'LOCKED' && (
                                         <CommentsPanel sheetId={sheetId} />

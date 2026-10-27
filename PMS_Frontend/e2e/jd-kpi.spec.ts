@@ -33,7 +33,11 @@ test('a role-specific JD goes through HOD, Plant Head and CHRO sign-off', async 
                 .getByRole('link', { name: 'Job descriptions' })
                 .click()
         await page.getByRole('link', { name: 'New JD' }).click()
-        await page.getByLabel('Role title').fill(title)
+        // The list's "Search by role title" box must not be mistaken for the form field.
+        await expect(
+                page.getByRole('heading', { level: 1, name: 'New job description' }),
+        ).toBeVisible()
+        await page.getByLabel('Role title', { exact: true }).fill(title)
         await page.getByLabel('Department', { exact: true }).selectOption({ label: 'Quality' })
         await page.getByLabel('Plant', { exact: true }).selectOption({ label: 'Demo Plant A' })
         await expect(page.getByLabel('Available budget for the department')).toBeDisabled()

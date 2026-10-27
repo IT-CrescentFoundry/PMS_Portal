@@ -157,6 +157,16 @@ Configurable matrices and scoring (Stage K) add:
 | `matrix:approve` | CHRO | approve or reject a submitted version (not its author or submitter), publish |
 | `score:publish` | HR_HEAD, CHRO | contribution weights of cross-plant employees, normalization placements and cohort approval (scope covering everyone concerned); publish a whole quarter (GLOBAL only) |
 
+Annual results and corrections of published quarters (Stage M) add:
+
+| Capability | Roles | Allows |
+|---|---|---|
+| `annual:read` | ADMIN, CHRO, HR_HEAD, HR | annual results, their versions, deviations and audit history, within scope |
+| `annual:deviation_request` | ADMIN | request an adjustment of a calculated annual score |
+| `annual:approve` | CHRO | decide annual deviations, approve (publish) annual results, set a cycle's annual rule (GLOBAL) |
+| `quarter:correction_request` | HR_HEAD | request a correction of a published quarter |
+| `quarter:correction_approve` | CHRO | approve or reject a correction |
+
 Score overrides use the deviation capabilities: `kpi:write` requests,
 `deviation:approve_hr` and `deviation:approve_plant` approve (two different
 people, neither the requester).
@@ -166,7 +176,9 @@ database CHECK constraints: the three JD signatories must be different
 people; a deviation's two approvers must be different people and neither
 may be the requester. Nobody marks their own KPI result as reviewed, places
 themselves in a normalization cohort, or approves a cohort they belong to or
-placed anyone in (Stage L). "Available budget for the department" on a JD is
+placed anyone in (Stage L). Nobody decides their own annual deviation or
+quarter correction request, approves their own annual result, or decides a
+correction of their own result (Stage M). "Available budget for the department" on a JD is
 filled by HR roles (HR, HR_HEAD, CHRO, ADMIN) only. Company-wide KPIs and
 scoring policies need GLOBAL `kpi:write`.
 
@@ -390,6 +402,51 @@ normalization policy are described in
 
 Every step, weight change, placement, approval, reopening, comment and the
 publication is audited in the same transaction as the change.
+
+Since Stage M, results are versioned: `GET /api/kpi/results/{sheet_id}` returns
+`result.version_no` (1 = the quarter's own result, 2+ = a correction) and
+`versions` (every version, oldest first; empty for the employee, who sees the
+published version only). Employee results carry `version_no` and, on the
+detail endpoint, `versions`; cohorts carry `version_no`. The quarter overview
+adds `published_version`, `open_correction` and
+`actions.can_request_correction`.
+
+### Corrections of published quarters (Stage M)
+
+A published quarter never changes. An approved correction becomes the next
+version of the results it affects, completes department review,
+normalization and publication again, and only then is current. Rules:
+[database-design.md](database-design.md#annual-results-deviations-and-quarter-corrections-stage-m).
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| POST | `/api/kpi/quarters/{id}/corrections/preview` | `quarter:correction_request` | same body as below; checks it and returns the projected sheet and employee scores before and after, the affected employees, cohorts and their other members; saves nothing |
+| POST | `/api/kpi/quarters/{id}/corrections` | `quarter:correction_request` covering every affected unit | `{"reason" (≥ 10 chars), "values": [{"sheet_id", "kpi_definition_id", "period": "YYYY-MM", "actual", "inputs"?}], "weights": [{"employee_id", "weights": [{"assignment_id", "weight"}]}]}`; PUBLISHED quarters only, one open correction per quarter (409); every value must change and the corrected result must be complete (422) |
+| GET | `/api/kpi/corrections` | `org:read` | `quarter_id`, `status`; corrections whose units the caller covers |
+| GET | `/api/kpi/corrections/{id}` | `org:read` covering every affected unit | the changes before and after, the projection, affected results, the version's corrected sheets and cohorts, `blockers` of the next step, allowed `actions`, audit `history` |
+| POST | `/api/kpi/corrections/{id}/approve`, `…/reject` | `quarter:correction_approve` covering every affected unit | `{"reason"}` (≥ 10 chars); not the requester, not a correction of one's own result (403); approval opens the new version for department review and flags the dependent annual results, in one transaction |
+| POST | `/api/kpi/corrections/{id}/transition` | GLOBAL `quarter:start` | `{"to", "reason"?}`: DEPARTMENT_REVIEW → NORMALIZATION → READY, gated (422 lists blockers); one step back with a reason |
+| POST | `/api/kpi/corrections/{id}/publish` | GLOBAL `score:publish` | READY only (409 otherwise, so never twice); the version's rows become PUBLISHED and the rows they replace SUPERSEDED |
+| GET | `/api/kpi/quarters/{id}/versions` | `org:read` | the quarter's published versions with who published them and when, and which is current |
+
+### Annual results and deviations (Stage M)
+
+Annual score: from the four PUBLISHED quarterly employee results under the
+cycle's rule (default: equally weighted, 2 decimals, half up). A missing,
+unpublished or in-correction quarter is never treated as zero.
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| GET | `/api/annual/cycles` | `annual:read` | cycles with their quarters, the annual rule (weights, version, SHA-256) and `can_set_rule` |
+| PUT | `/api/annual/cycles/{id}/rule` | GLOBAL `annual:approve` | `{"weights": [{"quarter_number", "weight"}]}`, total exactly 100; 409 once an annual result of the cycle is approved |
+| GET | `/api/annual/cycles/{id}/employees` | `annual:read` | `plant_id`, `department_id`, `search`; per employee: the quarters (score, version, open corrections), `complete`, `issues`, the calculated `draft` and the approved `published` version, the pending deviation, allowed `actions` |
+| POST | `/api/annual/cycles/{id}/calculate` | `score:publish` | `{"employee_ids"?}` → `{"calculated", "unchanged", "incomplete"}`; unchanged inputs keep the version, changed inputs create a new one |
+| GET | `/api/annual/cycles/{id}/employees/{eid}` | `annual:read` | the row plus every version with its sources and rule, deviations, `finalize_blockers` and audit `history` |
+| POST | `/api/annual/results/{id}/finalize` | `annual:approve` | `{"note"?}`; a CALCULATED version with no pending deviation, current sources and no open correction (422 lists the reasons); never one's own result (403); the version it replaces becomes SUPERSEDED |
+| POST | `/api/annual/results/{id}/deviations` | `annual:deviation_request` | `{"original_score", "proposed_score" (0–5, ≤ 2 decimals), "reason" (≥ 10 chars)}`; the original must equal the calculated score (409 when stale); one pending request and one approved adjustment per version |
+| GET | `/api/annual/deviations[/{id}]` | `annual:read` | `status`, `cycle_id` |
+| POST | `/api/annual/deviations/{id}/approve`, `…/reject` | `annual:approve` | `{"reason"}` (≥ 10 chars); not the requester (403); approval sets the adjusted score, the calculated score is kept |
+| GET | `/api/annual/my` | `self:read` | the caller's approved annual results, with a `notice` while a source quarter is being corrected |
 
 ## Local demo accounts
 

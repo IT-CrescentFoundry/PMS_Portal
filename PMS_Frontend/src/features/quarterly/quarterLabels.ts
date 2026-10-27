@@ -56,6 +56,7 @@ export const COHORT_STATUS: Record<NormalizationRunStatus, { label: string; tone
         APPROVED: { label: 'Approved', tone: 'success' },
         PUBLISHED: { label: 'Published', tone: 'success' },
         DISCARDED: { label: 'Discarded', tone: 'neutral' },
+        SUPERSEDED: { label: 'Superseded by a correction', tone: 'neutral' },
 }
 
 export const WEIGHTS_SOURCE: Record<string, string> = {
@@ -69,6 +70,7 @@ export const EMPLOYEE_STATUS: Record<string, { label: string; tone: BadgeTone }>
         LIVE: { label: 'Live (before normalization)', tone: 'neutral' },
         DRAFT: { label: 'Frozen for normalization', tone: 'info' },
         PUBLISHED: { label: 'Published', tone: 'success' },
+        SUPERSEDED: { label: 'Superseded by a correction', tone: 'neutral' },
 }
 
 /** "2 (25 %) · target 2 (20 %)" */

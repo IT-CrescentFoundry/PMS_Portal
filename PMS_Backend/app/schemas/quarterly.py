@@ -52,6 +52,14 @@ class QuarterActions(BaseModel):
     can_advance: bool
     can_return: bool
     can_publish: bool
+    # Stage M: request a correction of the published quarter (HR Head).
+    can_request_correction: bool = False
+
+
+class OpenCorrection(BaseModel):
+    id: int
+    status: str
+    version_no: int | None
 
 
 class QuarterOverview(BaseModel):
@@ -69,6 +77,10 @@ class QuarterOverview(BaseModel):
     published_at: datetime | None
     published_by: UserRef | None
     actions: QuarterActions
+    # Stage M: the current published version (1 = the original publication)
+    # and a correction that is requested or in progress.
+    published_version: int | None = None
+    open_correction: OpenCorrection | None = None
 
 
 class TransitionRequest(BaseModel):
@@ -125,6 +137,19 @@ class EmployeeResultRead(BaseModel):
     components: list[ComponentRead]
     normalization: NormalizationOutcome | None
     can_set_weights: bool
+    # Stage M: the row's version (None while live), and every version of the
+    # employee's result in the quarter (the detail endpoint only).
+    version_no: int | None = None
+    versions: list["EmployeeVersionRead"] = []
+
+
+class EmployeeVersionRead(BaseModel):
+    version_no: int
+    status: str
+    final_score: str
+    group_key: str | None
+    normalized_rating: str | None
+    published_at: datetime | None
 
 
 class WeightIn(BaseModel):
@@ -167,6 +192,7 @@ class RunActionsRead(BaseModel):
 class RunSummary(BaseModel):
     id: int
     status: NormalizationRunStatus
+    version_no: int = 1
     cohort_label: str
     cohort_level: CohortLevel
     policy: PolicyVersionRef

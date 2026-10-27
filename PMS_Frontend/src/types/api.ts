@@ -912,12 +912,14 @@ export interface MonthlyValue {
         source_row: number | null
 }
 
-export type ScoreResultStatus = 'CALCULATED' | 'REVIEWED' | 'PUBLISHED'
+export type ScoreResultStatus = 'CALCULATED' | 'REVIEWED' | 'PUBLISHED' | 'SUPERSEDED'
 export type ScoreOverrideStatus = 'PENDING' | 'APPLIED' | 'REJECTED' | 'VOIDED'
 
 /** Scores travel as text ("3.40") so they stay exact. */
 export interface ResultBrief {
         status: ScoreResultStatus
+        /** 1 = the quarter's own result; 2+ = a correction of the published quarter. */
+        version_no: number
         is_complete: boolean
         /** Data or the sheet changed since the calculation. */
         stale: boolean
@@ -963,6 +965,8 @@ export interface ResultItem {
                 inputs: Record<string, MatrixValue> | null
                 import_id: number | null
                 row: number | null
+                /** Set when the value comes from an approved quarter correction. */
+                correction_id?: number
         }[]
         quarterly_actual: string | null
         inputs: Record<string, string>
@@ -1025,6 +1029,19 @@ export interface ResultDetail {
                 can_publish: boolean
                 can_request_override: boolean
         }
+        /** Every version of the result, oldest first (empty for the employee). */
+        versions: ResultVersion[]
+}
+
+export interface ResultVersion {
+        version_no: number
+        status: ScoreResultStatus
+        final_score: string | null
+        override_score: string | null
+        published_score: string | null
+        calculated_at: string | null
+        published_at: string | null
+        correction_id: number | null
 }
 
 export interface CalculateResult {
@@ -1063,7 +1080,16 @@ export interface QuarterOverview {
         feedback_enabled: boolean
         published_at: string | null
         published_by: UserRef | null
-        actions: { can_advance: boolean; can_return: boolean; can_publish: boolean }
+        actions: {
+                can_advance: boolean
+                can_return: boolean
+                can_publish: boolean
+                can_request_correction: boolean
+        }
+        /** The current published version (1 = the original publication). */
+        published_version: number | null
+        /** A correction requested or in progress. */
+        open_correction: { id: number; status: CorrectionStatus; version_no: number | null } | null
 }
 
 export type NormalizationPlacement =
@@ -1074,7 +1100,7 @@ export type NormalizationPlacement =
         | 'SMALL_COHORT_RESOLVED'
         | 'NEEDS_RESOLUTION'
         | 'NOT_ELIGIBLE'
-export type NormalizationRunStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED' | 'DISCARDED'
+export type NormalizationRunStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED' | 'DISCARDED' | 'SUPERSEDED'
 export type CohortLevel = 'COMPANY' | 'PLANT' | 'DEPARTMENT' | 'PLANT_DEPARTMENT'
 
 export interface EmployeeComponent {
@@ -1110,8 +1136,9 @@ export interface NormalizationOutcome {
 export interface EmployeeResult {
         employee: EmployeeRef
         quarter_id: number
-        /** LIVE before normalization; DRAFT frozen for normalization; PUBLISHED final. */
-        status: 'LIVE' | 'DRAFT' | 'PUBLISHED'
+        /** LIVE before normalization; DRAFT frozen for normalization; PUBLISHED final;
+         * SUPERSEDED replaced by a corrected version. */
+        status: 'LIVE' | 'DRAFT' | 'PUBLISHED' | 'SUPERSEDED'
         home_plant: PlantRef | null
         home_department: DepartmentRef | null
         /** SINGLE | CONFIGURED | MISSING | INVALID */
@@ -1123,6 +1150,19 @@ export interface EmployeeResult {
         components: EmployeeComponent[]
         normalization: NormalizationOutcome | null
         can_set_weights: boolean
+        /** The row's version (null while live). */
+        version_no: number | null
+        /** Every version of the employee's result in the quarter (detail only). */
+        versions: EmployeeResultVersion[]
+}
+
+export interface EmployeeResultVersion {
+        version_no: number
+        status: string
+        final_score: string
+        group_key: string | null
+        normalized_rating: string | null
+        published_at: string | null
 }
 
 export interface GroupDistribution {
@@ -1137,6 +1177,7 @@ export interface GroupDistribution {
 export interface CohortSummary {
         id: number
         status: NormalizationRunStatus
+        version_no: number
         cohort_label: string
         cohort_level: CohortLevel
         policy: {
@@ -1243,4 +1284,316 @@ export interface MatrixSettingsOptions {
         ties: Record<string, string>
         small_cohort: Record<string, string>
         max_groups: number
+}
+
+// --- Stage M: annual results, annual deviations, quarter corrections ----------------------
+
+export interface AuditEntry {
+        id: number
+        action: string
+        summary: string
+        reason: string | null
+        actor: string
+        occurred_at: string
+}
+
+export type CycleStatus = 'DRAFT' | 'ACTIVE' | 'CLOSED'
+
+export interface AnnualRule {
+        code: string
+        version: number
+        /** Quarter number -> weight % (text). */
+        quarter_weights: Record<string, string>
+        decimals: number
+        rounding: string
+        description: string
+        sha256: string
+}
+
+export interface AnnualCycle {
+        id: number
+        code: string
+        name: string
+        start_date: string
+        end_date: string
+        status: CycleStatus
+        quarters: Quarter[]
+        rule: AnnualRule
+        can_set_rule: boolean
+}
+
+export interface AnnualQuarter {
+        quarter_id: number
+        quarter_number: number
+        name: string
+        status: QuarterStatus
+        weight: string
+        required: boolean
+        published: boolean
+        score: string | null
+        version_no: number | null
+        employee_result_id: number | null
+        /** Open corrections of the quarter that affect the employee. */
+        correction_ids: number[]
+}
+
+export type AnnualResultStatus = 'CALCULATED' | 'PUBLISHED' | 'SUPERSEDED' | 'DISCARDED'
+
+export interface AnnualVersion {
+        id: number
+        version_no: number
+        status: AnnualResultStatus
+        calculated_exact: string
+        calculated_score: string
+        adjusted_score: string | null
+        final_score: string
+        recalculation_required: boolean
+        recalculation_reason: string | null
+        calculated_by: UserRef | null
+        calculated_at: string | null
+        published_by: UserRef | null
+        published_at: string | null
+        approval_note: string | null
+        previous_id: number | null
+        superseded_at: string | null
+        rule_version: number | null
+        rule_sha256: string
+}
+
+export interface AnnualSource {
+        quarter_id: number
+        quarter_number: number
+        quarter_name: string
+        weight: string
+        employee_result_id: number
+        version_no: number
+        final_score: string
+        calculated_score: string
+        weights_source: string
+        published_at: string | null
+        components: {
+                sheet_id: number
+                unit: string
+                score: string | null
+                weight: string | null
+        }[]
+        scoring: {
+                sheet_id: number
+                result_id: number | null
+                result_version_no: number | null
+                kpis: {
+                        kpi_code: string
+                        matrix_version_id: number | null
+                        matrix_code: string | null
+                        matrix_version_no: number | null
+                        legacy_rule: boolean
+                }[]
+        }[]
+        normalization: {
+                run_id: number
+                run_version_no: number
+                matrix_version_id: number
+                policy_version_no: number
+                group_key: string | null
+                normalized_rating: string | null
+        } | null
+}
+
+export interface AnnualVersionDetail extends AnnualVersion {
+        sources: AnnualSource[]
+        rule: Record<string, unknown>
+}
+
+export type AnnualDeviationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'VOIDED'
+
+export interface AnnualDeviation {
+        id: number
+        status: AnnualDeviationStatus
+        annual_result_id: number
+        version_no: number
+        cycle_id: number
+        cycle_name: string
+        employee: EmployeeRef
+        original_score: string
+        proposed_score: string
+        reason: string
+        requested_by: UserRef | null
+        requested_at: string
+        decided_by: UserRef | null
+        decided_at: string | null
+        decision_reason: string | null
+        voided_at: string | null
+        can_decide: boolean
+}
+
+export interface AnnualRow {
+        employee: EmployeeRef
+        cycle_id: number
+        home_plant: PlantRef | null
+        home_department: DepartmentRef | null
+        quarters: AnnualQuarter[]
+        complete: boolean
+        issues: string[]
+        draft: AnnualVersion | null
+        published: AnnualVersion | null
+        pending_deviation: {
+                id: number
+                status: AnnualDeviationStatus
+                original_score: string
+                proposed_score: string
+                requested_by: UserRef | null
+                requested_at: string
+        } | null
+        actions: {
+                can_calculate: boolean
+                can_request_deviation: boolean
+                can_decide_deviation: boolean
+                can_finalize: boolean
+        }
+}
+
+export interface AnnualDetail extends AnnualRow {
+        versions: AnnualVersionDetail[]
+        deviations: AnnualDeviation[]
+        finalize_blockers: string[]
+        history: AuditEntry[]
+}
+
+export interface AnnualCalculated {
+        calculated: number
+        unchanged: number
+        incomplete: number
+}
+
+export interface OwnAnnual {
+        cycle_id: number
+        cycle_code: string
+        cycle_name: string
+        version_no: number
+        final_score: string
+        published_at: string | null
+        quarters: { quarter_number: number; name: string; score: string }[]
+        notice: string | null
+}
+
+export type CorrectionStatus =
+        'REQUESTED' | 'REJECTED' | 'DEPARTMENT_REVIEW' | 'NORMALIZATION' | 'READY' | 'PUBLISHED'
+
+export interface CorrectionValueIn {
+        sheet_id: number
+        kpi_definition_id: number
+        period: string
+        actual: string | null
+        inputs?: Record<string, string> | null
+}
+
+export interface CorrectionWeightsIn {
+        employee_id: number
+        weights: { assignment_id: number; weight: string }[]
+}
+
+export interface CorrectionRequest {
+        reason: string
+        values: CorrectionValueIn[]
+        weights: CorrectionWeightsIn[]
+}
+
+export interface CorrectionAffected {
+        employees: EmployeeRef[]
+        dependents: EmployeeRef[]
+        cohorts: { run_id: number; label: string; members: number }[]
+        annual_results_flagged: number[]
+}
+
+export interface CorrectionPreview {
+        sheets: {
+                sheet_id: number
+                employee: string
+                unit: string
+                before: string | null
+                after: string | null
+                complete: boolean
+        }[]
+        employees: {
+                employee_id: number
+                employee: string
+                before: string | null
+                after: string | null
+        }[]
+        problems: string[]
+        affected: CorrectionAffected
+}
+
+export interface CorrectionWeight {
+        assignment_id: number
+        unit: string
+        weight: string
+}
+
+export interface CorrectionChange {
+        id: number | null
+        kind: 'VALUE' | 'WEIGHTS'
+        employee: EmployeeRef | null
+        unit: string | null
+        sheet_id: number | null
+        kpi_code: string | null
+        kpi_name: string | null
+        period: string | null
+        had_value: boolean
+        before_actual: string | null
+        after_actual: string | null
+        before_inputs: Record<string, unknown> | null
+        after_inputs: Record<string, unknown> | null
+        before_weights: CorrectionWeight[]
+        after_weights: CorrectionWeight[]
+}
+
+export interface CorrectionSummary {
+        id: number
+        status: CorrectionStatus
+        quarter: Quarter
+        base_version: number
+        version_no: number | null
+        reason: string
+        requested_by: UserRef | null
+        requested_at: string
+        items: number
+}
+
+export interface Correction extends CorrectionSummary {
+        decided_by: UserRef | null
+        decided_at: string | null
+        decision_reason: string | null
+        published_by: UserRef | null
+        published_at: string | null
+        changes: CorrectionChange[]
+        preview: CorrectionPreview
+        affected: CorrectionAffected | null
+        sheets: {
+                sheet_id: number
+                employee: EmployeeRef
+                unit: string
+                status: ScoreResultStatus | null
+                final_score: string | null
+                published_score: string | null
+        }[]
+        cohorts: { run_id: number; label: string; status: string }[]
+        next_status: CorrectionStatus | null
+        previous_status: CorrectionStatus | null
+        blockers: string[]
+        actions: {
+                can_decide: boolean
+                can_advance: boolean
+                can_return: boolean
+                can_publish: boolean
+        }
+        history: AuditEntry[]
+}
+
+export interface QuarterVersion {
+        version_no: number
+        current: boolean
+        correction_id: number | null
+        published_by: UserRef | null
+        published_at: string | null
 }

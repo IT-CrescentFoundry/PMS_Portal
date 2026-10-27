@@ -36,7 +36,14 @@ export function overview(overrides: Partial<QuarterOverview> = {}): QuarterOverv
                 feedback_enabled: true,
                 published_at: null,
                 published_by: null,
-                actions: { can_advance: true, can_return: false, can_publish: false },
+                actions: {
+                        can_advance: true,
+                        can_return: false,
+                        can_publish: false,
+                        can_request_correction: false,
+                },
+                published_version: null,
+                open_correction: null,
                 ...overrides,
         }
 }
@@ -87,6 +94,8 @@ export function employeeResult(overrides: Partial<EmployeeResult> = {}): Employe
                 ],
                 normalization: null,
                 can_set_weights: true,
+                version_no: null,
+                versions: [],
                 ...overrides,
         }
 }
@@ -119,6 +128,7 @@ export function cohort(overrides: Partial<Cohort> = {}): Cohort {
         return {
                 id: 7,
                 status: 'DRAFT',
+                version_no: 1,
                 cohort_label: 'Test Quality: all plants',
                 cohort_level: 'DEPARTMENT',
                 policy: {

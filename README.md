@@ -48,8 +48,18 @@ average); configurable, CHRO-approved normalization policies (for example
 silently and a configured group-to-rating table; optional review comments
 and feedback; and one audited, transactional publication by the HR Head or
 CHRO, after which nothing in the quarter changes. Employees see their own
-sheets and published outcome under **My KPI sheets**. Annual scores and
-budgets come in later stages.
+sheets and published outcome under **My KPI sheets**.
+
+Stage M adds **annual performance**: an annual score per employee from the
+four published quarterly results (initially an equally weighted average; the
+quarter weights are configuration the CHRO may set), never counting a missing
+quarter as zero; annual score deviations requested by an Admin and decided by
+the CHRO, with the calculated score always kept; CHRO approval of each annual
+result; and **controlled corrections of published quarters**: an HR Head
+requests, the CHRO decides, and the correction becomes a new version of the
+quarter's results that is reviewed, renormalized and published again, while
+every earlier version, its audit history and the annual results built on it
+stay available. Budgets and increments come in later stages.
 
 ## Getting Started
 

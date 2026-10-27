@@ -376,6 +376,7 @@ export function resultDetail(overrides: Partial<ResultDetail> = {}): ResultDetai
                 assignment: { ...assignmentBrief, plant: plantA, department: quality },
                 result: {
                         status: 'CALCULATED',
+                        version_no: 1,
                         is_complete: true,
                         stale: false,
                         calculated_score: '3.4000',
@@ -400,6 +401,7 @@ export function resultDetail(overrides: Partial<ResultDetail> = {}): ResultDetai
                         can_publish: false,
                         can_request_override: true,
                 },
+                versions: [],
                 ...overrides,
         }
 }

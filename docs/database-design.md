@@ -460,7 +460,7 @@ meaning:
 | `DEPARTMENT_REVIEW` | Data collection closed; departments review | review, overrides, comments, contribution weights; data frozen |
 | `NORMALIZATION` | Employee scores consolidated and normalized | cohort placement and approval only |
 | `READY` | Every cohort approved | publication only |
-| `PUBLISHED` | Published and locked | nothing changes |
+| `PUBLISHED` | Published and locked | nothing changes; a correction becomes a new version (Stage M) |
 | `CLOSED` | Historic quarter (demo seed) | read-only |
 
 Forward steps need a GLOBAL `quarter:start` role (HR Head, CHRO, Admin) and
@@ -480,7 +480,9 @@ for a quarterly KPI). Missing data is never treated as zero: the result stays
 incomplete and blocks the quarter at the first gate, with the missing months
 listed. Corrections after data collection closes need the quarter moved back
 to data collection (global role, reason recorded). After publication nothing
-changes; deviations, imports and recalculation are refused.
+changes; deviations, imports and recalculation are refused. Since Stage M a
+published quarter is corrected only through a CHRO-approved correction, which
+becomes a new version (see below).
 
 ### Employee consolidation
 
@@ -548,6 +550,154 @@ run without approval.
 | Comments, feedback | `kpi:write` in scope; reading follows the sheet |
 | Employee (consolidated) results | org readers covering the employee's attribution unit or every component |
 | Own sheets, published outcome and feedback | the employee (`self:read`) |
+
+## Annual results, deviations and quarter corrections (Stage M)
+
+### Approved policies
+
+- **Annual score (initial default, configurable).** An equally weighted
+  arithmetic average of the four PUBLISHED quarterly employee results
+  (`employee_quarter_results`, one row per person: cross-plant assignments are
+  already combined with their contribution weights). It is a demo calculation
+  rule, stored as configuration, not a fixed company policy.
+- **Annual score deviations.** An authorized Admin requests an adjustment of a
+  calculated annual score (original score, proposed score, mandatory reason);
+  the CHRO approves or rejects it with a reason; the requester never decides.
+  The calculated score is always kept; only an approved adjustment changes the
+  final score. Published annual scores are never edited directly.
+- **Corrections of published quarters (explicitly approved).** An HR Head
+  requests a correction; the CHRO approves or rejects it with a reason, never
+  their own request. Approval creates a new version of the quarter's results;
+  the published version and its audit history are never overwritten or
+  deleted. The new version is recalculated with the matrix versions frozen on
+  the KPI sheets, revalidated, reviewed, renormalized and published through
+  the same steps before it becomes current. Annual results calculated from the
+  quarter are marked for recalculation; a recalculated annual result needs the
+  CHRO's approval again, and both annual versions are kept.
+
+### The annual rule
+
+`pms_cycles.annual_rule` (JSON; NULL means the default):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `code`, `version` | `QUARTERLY_WEIGHTED_AVERAGE`, 1 | the formula and its version |
+| `quarter_weights` | Q1–Q4 25 % each | weight of each quarter's final score; a quarter weighted 0 is not required |
+| `decimals`, `rounding` | 2, `HALF_UP` | rounding of the annual score |
+
+`exact = Σ(quarterly final score × weight) / 100` (kept to 6 decimals),
+`calculated = exact` rounded half-up to 2 decimals. The CHRO (GLOBAL
+`annual:approve`) may change the weights (each 0–100, total exactly 100)
+until an annual result of the cycle is approved; the change is versioned and
+audited, and every annual result stores the rule it used and its SHA-256.
+
+**Missing data.** Every quarter with a weight above 0 needs a PUBLISHED
+employee result. A quarter that is missing, not yet published or being
+corrected is never treated as zero: the employee simply has no calculable
+annual score, and the reasons are listed. Employees who joined or left during
+the cycle therefore have no annual score under the default rule (pro-rating
+is a business decision not yet taken).
+
+### Annual results and deviations
+
+| Status | Meaning |
+|---|---|
+| `CALCULATED` | calculated by an HR Head or the CHRO (`score:publish`); awaits the CHRO |
+| `PUBLISHED` | approved by the CHRO (`annual:approve`, never their own result): final |
+| `SUPERSEDED` | a published version replaced by a newer approved version |
+| `DISCARDED` | a calculated version replaced by a recalculation before approval |
+
+A recalculation with identical inputs (same source rows and versions, same
+rule) changes nothing. Different inputs create a new version (`version_no`
++1, `previous_id` linking to the version it replaces): a draft it replaces is
+DISCARDED with any pending deviation VOIDED; a published version stays
+current, flagged, until the new version is approved, then becomes SUPERSEDED.
+An approved adjustment belongs to the version it was approved for and is not
+carried to a recalculated version (request it again if it still applies).
+
+Each version stores, for reproducibility: the source quarterly result rows
+(id, version, final and exact score, inputs hash, components with weights),
+the scoring matrix versions behind each KPI, the normalization run and policy
+version, the rule and its SHA-256, the exact and rounded scores, who
+calculated it and when.
+
+Deviations (`annual_score_deviations`): `PENDING → APPROVED | REJECTED`, or
+`VOIDED` when the annual result is recalculated first. One pending request per
+annual result version (a unique generated key) and one approved adjustment
+per version. A request states the original calculated score (checked against
+the stored one), the proposed score (0–5, 2 decimals) and a reason (≥ 10
+characters); the decision needs a reason (≥ 10 characters). A database CHECK
+keeps the decider different from the requester.
+
+### Versioned quarter results and corrections
+
+`kpi_sheet_results`, `employee_quarter_results` and `normalization_runs` gain
+`version_no`. Version 1 is the quarter's own result. An approved correction
+is version *N+1* of the results it recalculates; rows of sheets, employees and
+cohorts it does not affect stay at their version:
+
+- the **working** row of a sheet, employee or cohort is its highest version
+  (what reviewers see and act on);
+- the **published** row is the one with status PUBLISHED; a generated unique
+  key allows at most one per sheet, per employee and quarter, and per cohort
+  and quarter;
+- a row's review step is its version's **phase**: the quarter's status for
+  version 1, the correction's step for later versions.
+
+Corrected monthly values and contribution weights are not written over the
+stored ones: `quarter_correction_items` (with the value before and after) are
+applied on top of them, in version order, for every approved correction. The
+stored imports therefore still reproduce version 1, and each version can be
+recalculated from its items.
+
+| Correction status | Who | What happens |
+|---|---|---|
+| `REQUESTED` | HR Head (`quarter:correction_request`, scope covering every affected unit) | the request is checked as it will be calculated; its projected effect (sheet and employee scores before and after, affected cohorts and employees) is stored |
+| `REJECTED` | CHRO (`quarter:correction_approve`) | with a reason; nothing else changes |
+| `DEPARTMENT_REVIEW` | CHRO approves, with a reason | one transaction: version number assigned; affected sheets recalculated as CALCULATED rows of the version; dependent results recorded (affected employees, their cohorts, the cohorts' other members); annual results calculated from the quarter for those employees flagged |
+| `NORMALIZATION` | GLOBAL `quarter:start`, gated | every corrected sheet reviewed (not by its own employee), complete, no pending override; affected employees' scores consolidated again; every affected cohort renormalized as runs of the version (other members carried over with their unchanged scores) |
+| `READY` | GLOBAL `quarter:start`, gated | every affected cohort approved (by someone who placed nobody and is not a member) |
+| `PUBLISHED` | GLOBAL `score:publish` | one transaction: the version's rows PUBLISHED, the rows they replace SUPERSEDED; dependent annual results flagged |
+
+Each forward step can be undone one step with a reason. Only one correction of
+a quarter may be open (requested or in progress) at a time, enforced by a
+unique generated key, so the same correction can't be approved or published
+twice; a request made against a version that has since been replaced can't be
+approved. A correction changes monthly values and contribution weights only:
+KPI sheet items, targets and the matrix versions frozen on them never change.
+
+### Tables (migration `c5ef5ec64c0f`)
+
+| Table / change | Purpose | Key rules |
+|---|---|---|
+| `annual_results` | One version of an employee's annual result per cycle | unique (cycle, employee, version); one CALCULATED and one PUBLISHED per (cycle, employee) via generated keys; CHECK scores 0–5 |
+| `annual_score_deviations` | Admin → CHRO adjustment requests | one PENDING per annual result; CHECK decider ≠ requester; CHECK proposed 0–5 |
+| `quarter_corrections` | A correction request, its decision and the version it becomes | unique (quarter, version_no); one open per quarter; CHECK decider ≠ requester; CHECK version ≥ 2 |
+| `quarter_correction_items` | Corrected monthly values and weight sets, before and after | CHECK on the shape of each kind |
+| `kpi_sheet_results`, `employee_quarter_results`, `normalization_runs` + `version_no` | versioned results | unique keys widened with `version_no`; one PUBLISHED row via a generated column |
+| status ENUMs + `SUPERSEDED` | replaced published rows | existing values unchanged |
+| `pms_cycles.annual_rule` | the annual rule | nullable JSON |
+
+Migration effects (reviewed before applying): new tables, nullable or
+defaulted columns and appended ENUM values; existing rows become version 1.
+Nothing is deleted; the three old unique indexes are dropped only after their
+wider replacements exist. `downgrade()` fails once any result has a second
+version or uses SUPERSEDED, and is never run without approval. Applied to
+`pms`, `pms_test` and `pms_e2e_test`.
+
+### Permissions
+
+| Action | Who |
+|---|---|
+| Read annual results, deviations and history | `annual:read` (ADMIN, CHRO, HR_HEAD, HR) covering the employee's home unit or every unit of their results |
+| Calculate annual results | `score:publish` (HR Head, CHRO) covering the employee |
+| Request an annual deviation | `annual:deviation_request` (ADMIN); not for one's own result |
+| Decide deviations, approve annual results | `annual:approve` (CHRO); never the requester, never one's own result |
+| Set the annual rule | GLOBAL `annual:approve`, before any annual result of the cycle is approved |
+| Request a quarter correction | `quarter:correction_request` (HR Head) covering every affected unit |
+| Decide a quarter correction | `quarter:correction_approve` (CHRO) covering every affected unit; never the requester, never a correction of one's own result |
+| Correction steps / publication | GLOBAL `quarter:start` / GLOBAL `score:publish` |
+| Own approved annual result | the employee (`self:read`), with a notice while a source quarter is being corrected |
 
 ## Deferred, by design
 

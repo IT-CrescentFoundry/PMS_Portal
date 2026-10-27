@@ -8,6 +8,12 @@ Within a cohort, app/services/normalization_policy.py ranks and places the
 eligible employees; the policy's decision table then gives each placed
 employee a normalized rating.
 
+Runs are versioned with the quarter's results (app/services/versions.py):
+the functions taking a quarter work on version 1; a correction of the
+published quarter renormalizes the cohorts it affects as runs of its own
+version (app/services/corrections.py). Each run's review step is its
+version's phase.
+
 Tied employees and small cohorts are placed by the policy's explicit rule, or
 by an authorized reviewer with a reason. A cohort is approved by an HR Head
 or the CHRO whose scope covers every member, and who placed none of them.
@@ -35,7 +41,7 @@ from app.models import (
     PmsCycleQuarter,
     QuarterStatus,
 )
-from app.services import matrix_service
+from app.services import matrix_service, versions
 from app.services import matrix_rules as rules
 from app.services import normalization_policy as policy
 from app.services.audit import AuditActor, record_event
@@ -141,7 +147,8 @@ class CohortPlan:
 def _rows(db: Session, quarter: PmsCycleQuarter) -> list[EmployeeQuarterResult]:
     return db.scalars(
         select(EmployeeQuarterResult)
-        .where(EmployeeQuarterResult.cycle_quarter_id == quarter.id)
+        .where(EmployeeQuarterResult.cycle_quarter_id == quarter.id,
+               EmployeeQuarterResult.version_no == 1)
         .options(joinedload(EmployeeQuarterResult.employee),
                  joinedload(EmployeeQuarterResult.primary_assignment)
                  .joinedload(EmployeeAssignment.designation))
@@ -176,7 +183,21 @@ def compute(db: Session, principal: Principal, quarter: PmsCycleQuarter) -> int:
     policy are unchanged keeps its placements and approval."""
     cohorts = plan(db, quarter)
     existing = {r.cohort_key: r for r in db.scalars(select(NormalizationRun).where(
-        NormalizationRun.cycle_quarter_id == quarter.id))}
+        NormalizationRun.cycle_quarter_id == quarter.id, NormalizationRun.version_no == 1))}
+    place_cohorts(db, principal, quarter, cohorts, existing, version_no=1)
+    for key, run in existing.items():
+        if key not in cohorts and run.status != NormalizationRunStatus.PUBLISHED:
+            run.status = NormalizationRunStatus.DISCARDED
+    db.flush()
+    return len(cohorts)
+
+
+def place_cohorts(db: Session, principal: Principal, quarter: PmsCycleQuarter,
+                  cohorts: dict[str, CohortPlan], existing: dict[str, NormalizationRun], *,
+                  version_no: int) -> None:
+    """Create or refresh one run per cohort of `version_no` and place its
+    members. A run whose inputs are unchanged keeps its placements and
+    approval."""
     for key, cohort in cohorts.items():
         digest = cohort.digest()
         run = existing.get(key)
@@ -190,8 +211,8 @@ def compute(db: Session, principal: Principal, quarter: PmsCycleQuarter) -> int:
             run = NormalizationRun(cycle_quarter_id=quarter.id, matrix_version_id=cohort.version.id,
                                    cohort_level=cohort.level, plant_id=cohort.plant_id,
                                    department_id=cohort.department_id, cohort_key=key,
-                                   population=0, eligible=0, targets={}, exceptions=[],
-                                   inputs_hash=digest)
+                                   version_no=version_no, population=0, eligible=0, targets={},
+                                   exceptions=[], inputs_hash=digest)
             db.add(run)
             db.flush()
         run.status = NormalizationRunStatus.DRAFT
@@ -217,11 +238,7 @@ def compute(db: Session, principal: Principal, quarter: PmsCycleQuarter) -> int:
             row.placement = placed.placement
             row.placement_options = placed.options
             rate(cohort.definition, row)
-    for key, run in existing.items():
-        if key not in cohorts and run.status != NormalizationRunStatus.PUBLISHED:
-            run.status = NormalizationRunStatus.DISCARDED
     db.flush()
-    return len(cohorts)
 
 
 # --- viewing ---------------------------------------------------------------------------------
@@ -233,6 +250,7 @@ class RunView:
     definition: rules.Definition | None
     settings: policy.Settings | None
     problem: str | None  # the policy could not be read
+    phase: QuarterStatus  # the review step of the run's version
 
     @property
     def label(self) -> str:
@@ -280,7 +298,8 @@ def _view(db: Session, run: NormalizationRun) -> RunView:
         problem = None
     except (matrix_service.IntegrityProblem, rules.EvaluationError) as exc:
         definition, settings, problem = None, None, str(exc)
-    return RunView(run, members, definition, settings, problem)
+    return RunView(run, members, definition, settings, problem,
+                   versions.phase(db, run.quarter, run.version_no))
 
 
 def _visible(principal: Principal, view: RunView) -> bool:
@@ -306,7 +325,8 @@ def list_runs(db: Session, principal: Principal, quarter_id: int) -> list[RunVie
     runs = db.scalars(_run_query().where(NormalizationRun.cycle_quarter_id == quarter.id,
                                          NormalizationRun.status.in_(ACTIVE))
                       .order_by(NormalizationRun.id)).unique().all()
-    views = [_view(db, r) for r in runs]
+    # The working run of each cohort: a correction's version when it has one.
+    views = [_view(db, r) for r in versions.latest(runs, lambda r: r.cohort_key).values()]
     return sorted((v for v in views if _visible(principal, v)), key=lambda v: v.label)
 
 
@@ -338,7 +358,7 @@ class RunActions:
 
 
 def actions(principal: Principal, view: RunView) -> RunActions:
-    in_review = view.run.quarter.status == QuarterStatus.NORMALIZATION
+    in_review = view.phase == QuarterStatus.NORMALIZATION
     covers = _covers(principal, view)
     draft = view.run.status == NormalizationRunStatus.DRAFT
     member = _is_member(principal, view)
@@ -366,6 +386,7 @@ def approval_blockers(db: Session, quarter: PmsCycleQuarter) -> list[str]:
     except (ConflictError, matrix_service.IntegrityProblem) as exc:
         return [str(exc)]
     runs = db.scalars(_run_query().where(NormalizationRun.cycle_quarter_id == quarter.id,
+                                         NormalizationRun.version_no == 1,
                                          NormalizationRun.status.in_(ACTIVE))).unique().all()
     by_key = {r.cohort_key: r for r in runs}
     for key, cohort in expected.items():
@@ -393,7 +414,7 @@ def approval_blockers(db: Session, quarter: PmsCycleQuarter) -> list[str]:
 # --- reviewer actions ----------------------------------------------------------------------
 
 def _require_reviewable(principal: Principal, view: RunView) -> None:
-    if view.run.quarter.status != QuarterStatus.NORMALIZATION:
+    if view.phase != QuarterStatus.NORMALIZATION:
         raise ConflictError("Cohorts can change only while the quarter is in normalization.")
     if not _covers(principal, view):
         raise PermissionDeniedError("Normalization decisions need HR Head or CHRO authority over "
@@ -496,9 +517,10 @@ def reopen_run(db: Session, principal: Principal, actor: AuditActor, run_id: int
     return get_run(db, principal, run_id)
 
 
-def publish_runs(db: Session, quarter: PmsCycleQuarter) -> list[NormalizationRun]:
+def publish_runs(db: Session, quarter: PmsCycleQuarter, version_no: int = 1) -> list[NormalizationRun]:
     runs = db.scalars(select(NormalizationRun).where(
         NormalizationRun.cycle_quarter_id == quarter.id,
+        NormalizationRun.version_no == version_no,
         NormalizationRun.status == NormalizationRunStatus.APPROVED)
         .order_by(NormalizationRun.id)).all()
     for run in runs:

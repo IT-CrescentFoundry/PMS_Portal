@@ -322,11 +322,14 @@ def require_collection(quarter: PmsCycleQuarter) -> None:
             "A correction needs the quarter returned to data collection by HR.")
 
 
-def require_review(quarter: PmsCycleQuarter) -> None:
-    if quarter.status not in REVIEW_STATUSES:
+def require_review(quarter: PmsCycleQuarter, status: QuarterStatus | None = None) -> None:
+    """`status` is the phase of the results concerned when they belong to a
+    correction of the published quarter (app/services/versions.py)."""
+    status = status or quarter.status
+    if status not in REVIEW_STATUSES:
         raise ConflictError(
             f"{quarter.name} is not open for department review "
-            f"({QUARTER_LABELS[quarter.status]}).")
+            f"({QUARTER_LABELS.get(status, status.value.lower())}).")
 
 
 def _require_scores_unpublished(db: Session, sheet: KpiSheet) -> None:

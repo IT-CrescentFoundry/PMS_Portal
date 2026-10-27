@@ -49,23 +49,35 @@ class Permission(StrEnum):
     MATRIX_APPROVE = "matrix:approve"
     # Publish reviewed quarterly scores (final and immutable).
     SCORE_PUBLISH = "score:publish"
+    # Stage M. Read annual results, their deviations and history within scope.
+    ANNUAL_READ = "annual:read"
+    # Request an adjustment of a calculated annual score (Admin).
+    ANNUAL_DEVIATION_REQUEST = "annual:deviation_request"
+    # Decide annual deviations, approve (publish) annual results and set the
+    # cycle's annual rule (CHRO).
+    ANNUAL_APPROVE = "annual:approve"
+    # Request a correction of a published quarter (HR Head) / decide it (CHRO).
+    QUARTER_CORRECTION_REQUEST = "quarter:correction_request"
+    QUARTER_CORRECTION_APPROVE = "quarter:correction_approve"
 
 
 P = Permission
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     "ADMIN": frozenset({
         P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.MATRIX_READ,
-        P.MATRIX_READ_COMPENSATION,
+        P.MATRIX_READ_COMPENSATION, P.ANNUAL_READ, P.ANNUAL_DEVIATION_REQUEST,
     }),
     "CHRO": frozenset({
         P.ORG_READ, P.JD_APPROVE, P.QUARTER_START, P.DEVIATION_APPROVE_HR, P.MATRIX_READ,
-        P.MATRIX_READ_COMPENSATION, P.MATRIX_APPROVE, P.SCORE_PUBLISH,
+        P.MATRIX_READ_COMPENSATION, P.MATRIX_APPROVE, P.SCORE_PUBLISH, P.ANNUAL_READ,
+        P.ANNUAL_APPROVE, P.QUARTER_CORRECTION_APPROVE,
     }),
     "HR_HEAD": frozenset({
         P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.DEVIATION_APPROVE_HR,
         P.MATRIX_READ, P.MATRIX_READ_COMPENSATION, P.MATRIX_WRITE, P.SCORE_PUBLISH,
+        P.ANNUAL_READ, P.QUARTER_CORRECTION_REQUEST,
     }),
-    "HR": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ}),
+    "HR": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ, P.ANNUAL_READ}),
     "PLANT_HEAD": frozenset(
         {P.ORG_READ, P.JD_AUTHORISE, P.DEVIATION_APPROVE_PLANT, P.MATRIX_READ}
     ),

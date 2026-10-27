@@ -7,8 +7,10 @@ configuration.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Date,
     DateTime,
@@ -42,6 +44,10 @@ class PmsCycle(TimestampMixin, Base):
         default=CycleStatus.DRAFT,
         server_default=CycleStatus.DRAFT.value,
     )
+    # Stage M: how the annual score is built from the quarterly scores
+    # (app/services/annual.py). NULL means the initial default: an equally
+    # weighted average of the four published quarterly scores.
+    annual_rule: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     quarters: Mapped[list[PmsCycleQuarter]] = relationship(
         back_populates="cycle", order_by="PmsCycleQuarter.quarter_number"

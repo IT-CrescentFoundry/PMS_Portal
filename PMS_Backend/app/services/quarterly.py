@@ -21,6 +21,11 @@ averaged without weights or treated as zero.
 Attribution (for cohorts, and to count each person once): the primary
 assignment active at the end of the quarter, else the latest primary that
 overlaps it.
+
+Everything here concerns version 1, the quarter's own results. Corrections
+of a published quarter (versions 2, 3, ...) reuse the consolidation and go
+through their own steps in app/services/corrections.py; the views below show
+each employee's working (highest) version.
 """
 from __future__ import annotations
 
@@ -51,7 +56,7 @@ from app.models import (
     QuarterStatus,
     ScoreResultStatus,
 )
-from app.services import kpi_results, normalization
+from app.services import kpi_results, normalization, versions
 from app.services import matrix_rules as rules
 from app.services.audit import AuditActor, record_event
 from app.services.errors import (
@@ -241,8 +246,11 @@ def _check_weights(components: Sequence[Component],
 
 
 def consolidate(db: Session, quarter: PmsCycleQuarter, views: Sequence[ResultView] | None = None,
-                employee_id: int | None = None) -> list[Consolidation]:
-    """One consolidation per employee with at least one locked sheet."""
+                employee_id: int | None = None,
+                extra_weights: Sequence[Any] = ()) -> list[Consolidation]:
+    """One consolidation per employee with at least one locked sheet, from
+    the working results and the weights with approved corrections applied
+    (`extra_weights`: unsaved correction items being checked)."""
     if views is None:
         views = kpi_results.quarter_views(db, quarter.id, employee_id)
     by_employee: dict[int, list[ResultView]] = defaultdict(list)
@@ -255,6 +263,9 @@ def consolidate(db: Session, quarter: PmsCycleQuarter, views: Sequence[ResultVie
             AssignmentScoreWeight.cycle_quarter_id == quarter.id,
             AssignmentScoreWeight.employee_id.in_(sorted(by_employee)))):
         weights[w.employee_id][w.employee_assignment_id] = w.weight
+    for emp_id, corrected in versions.weight_overlay(db, quarter.id, sorted(by_employee),
+                                                     extra=extra_weights).items():
+        weights[emp_id] = dict(corrected)
     assignments: dict[int, list[EmployeeAssignment]] = defaultdict(list)
     for a in db.scalars(select(EmployeeAssignment).where(
             EmployeeAssignment.employee_id.in_(sorted(by_employee))).options(
@@ -290,6 +301,8 @@ def consolidation_visible(principal: Principal, units: Sequence[tuple[int, int]]
 @dataclass
 class Overview:
     quarter: PmsCycleQuarter
+    published_version: int | None
+    open_correction: Any  # QuarterCorrection | None
     sheets: dict[str, int]
     employees: dict[str, int]
     cohorts: dict[str, int]
@@ -389,7 +402,9 @@ def overview(db: Session, principal: Principal, quarter_id: int) -> Overview:
     elif quarter.status == QuarterStatus.READY and publisher:
         blockers = publication_blockers(db, quarter, all_views, consolidations)
     return Overview(
-        quarter=quarter, sheets=_counts(views), employees=employees,
+        quarter=quarter, published_version=versions.published_version(db, quarter),
+        open_correction=versions.open_correction(db, quarter.id),
+        sheets=_counts(views), employees=employees,
         cohorts=normalization.cohort_counts(db, principal, quarter),
         unscorable_sheets=unscorable or 0, blockers=blockers, next_status=next_status,
         previous_status=BACKWARD.get(quarter.status),
@@ -414,7 +429,8 @@ def freeze_employee_results(db: Session, quarter: PmsCycleQuarter,
     """Store each employee's consolidated score for normalization. A row whose
     inputs changed loses its earlier normalization outcome."""
     existing = {r.employee_id: r for r in db.scalars(select(EmployeeQuarterResult).where(
-        EmployeeQuarterResult.cycle_quarter_id == quarter.id))}
+        EmployeeQuarterResult.cycle_quarter_id == quarter.id,
+        EmployeeQuarterResult.version_no == 1))}
     rows = []
     for c in consolidations:
         digest = c.inputs_hash()
@@ -483,7 +499,8 @@ def publication_blockers(db: Session, quarter: PmsCycleQuarter, views: Sequence[
     """Re-verify, at publication, that nothing changed since normalization."""
     blockers = [f"{_who(v)}: {p}" for v in views for p in sheet_problems(v, for_review=True)]
     rows = {r.employee_id: r for r in db.scalars(select(EmployeeQuarterResult).where(
-        EmployeeQuarterResult.cycle_quarter_id == quarter.id))}
+        EmployeeQuarterResult.cycle_quarter_id == quarter.id,
+        EmployeeQuarterResult.version_no == 1))}
     for c in consolidations:
         row = rows.get(c.employee.id)
         if row is None or row.inputs_hash != c.inputs_hash():
@@ -515,7 +532,8 @@ def publish(db: Session, principal: Principal, actor: AuditActor, quarter_id: in
     for v in views:
         kpi_results.publish_result(principal, v.result)
     rows = db.scalars(select(EmployeeQuarterResult).where(
-        EmployeeQuarterResult.cycle_quarter_id == quarter.id)
+        EmployeeQuarterResult.cycle_quarter_id == quarter.id,
+        EmployeeQuarterResult.version_no == 1)
         .order_by(EmployeeQuarterResult.employee_id)).all()
     for row in rows:
         row.status = EmployeeResultStatus.PUBLISHED
@@ -649,7 +667,8 @@ def employee_views(db: Session, principal: Principal, quarter_id: int, *,
                          joinedload(EmployeeQuarterResult.run)))
         if employee_id is not None:
             stmt = stmt.where(EmployeeQuarterResult.employee_id == employee_id)
-        found = [EmployeeView(r.employee, quarter, None, r) for r in db.scalars(stmt).unique()]
+        working = versions.latest(db.scalars(stmt).unique().all(), lambda r: r.employee_id)
+        found = [EmployeeView(r.employee, quarter, None, r) for r in working.values()]
         if employee_id is not None and not found:
             found = [EmployeeView(c.employee, quarter, c, None)
                      for c in consolidate(db, quarter, employee_id=employee_id)]

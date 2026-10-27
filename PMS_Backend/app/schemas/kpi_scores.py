@@ -106,6 +106,8 @@ class CalculateResult(BaseModel):
 
 class ResultBrief(BaseModel):
     status: ScoreResultStatus
+    # 1 = the quarter's own result; 2+ = a correction of the published quarter.
+    version_no: int = 1
     is_complete: bool
     stale: bool
     calculated_score: str | None
@@ -158,6 +160,19 @@ class OverrideRead(BaseModel):
     voided_at: datetime | None
 
 
+class ResultVersion(BaseModel):
+    """One version of a sheet's result (Stage M): every version stays readable."""
+
+    version_no: int
+    status: ScoreResultStatus
+    final_score: str | None
+    override_score: str | None
+    published_score: str | None
+    calculated_at: datetime | None
+    published_at: datetime | None
+    correction_id: int | None
+
+
 class ResultActions(BaseModel):
     can_calculate: bool
     can_review: bool
@@ -178,6 +193,9 @@ class ResultRead(BaseModel):
     pending_override: OverrideRead | None
     applied_override: OverrideRead | None
     actions: ResultActions
+    # Every version of the result, oldest first (empty for the employee, who
+    # sees the published version only).
+    versions: list[ResultVersion] = []
 
 
 Score = Annotated[Decimal, Field(ge=0, le=5, max_digits=3, decimal_places=2)]
