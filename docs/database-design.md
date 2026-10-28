@@ -699,10 +699,149 @@ version or uses SUPERSEDED, and is never run without approval. Applied to
 | Correction steps / publication | GLOBAL `quarter:start` / GLOBAL `score:publish` |
 | Own approved annual result | the employee (`self:read`), with a notice while a source quarter is being corrected |
 
+## Compensation, compa-ratio and budget finalization (Stage N)
+
+### Decisions taken for this stage
+
+- **Salary data** comes from a restricted, per-cycle **salary baseline**
+  imported as CSV or Excel (employee code, current annual salary, reference
+  salary, optional grade, eligibility and exclusion reason). It is readable
+  only by compensation roles, never seeded, and the audit trail records row
+  counts and the file's SHA-256, never amounts. Tests and browser tests use
+  synthetic values only.
+- **Performance input**: the employee's approved (PUBLISHED) annual final
+  score → the approved KRA performance matrix → rating 1–5 → the increment
+  matrix.
+- **Compa-ratio effect, chosen per cycle**: `MATRIX_INPUT` (the increment
+  matrix reads the rating and the compa-ratio) or `IMPACT_MULTIPLIER` (the
+  increment matrix gives a base increment by rating; a compa-ratio impact
+  matrix gives a multiplier in its output `increment_multiplier`).
+- **Budget roles**: the HR Head prepares scenarios; the budget owner
+  (BUDGET_USER) records the company-approved budget with a reason; the CHRO
+  approves the final budget and may not be the person who recorded the
+  amount, prepared or submitted the scenario; Admin reads and reviews.
+
+No compa-ratio bands, increment percentages, KRA bands, eligibility rules or
+salaries are defined in code or seed data. Until the HR Head configures the
+three matrix types and the CHRO approves them, a cycle shows them as
+**Awaiting approved configuration** and no scenario can be submitted.
+
+### Calculation (per employee)
+
+1. **Population**: employees with a PUBLISHED annual result in the cycle's
+   PMS cycle, plus every employee in the chosen baseline. Each person appears
+   once (a unique key per scenario), attributed to the plant and department
+   of their annual result (their primary attribution); employees only in the
+   baseline have no annual result, are always excluded and are listed without
+   a unit ("No primary plant"). Apportionment across plants is a
+   cycle setting (`apportionment`, currently `PRIMARY`) so it can be added
+   later without counting anyone twice.
+2. **Exclusions**, each with a code and reason, in this order: marked not
+   eligible in the baseline (`NOT_ELIGIBLE`, with HR's reason), no approved
+   annual result (`NO_ANNUAL_RESULT`), annual result flagged for
+   recalculation after a quarter correction (`ANNUAL_UNDER_RECALCULATION`),
+   not in the baseline (`NOT_IN_BASELINE`), no current salary, no approved
+   matrix in force on the cycle's effective date for the employee's unit,
+   more than one applying (`MATRIX_CONFLICT`), a missing matrix input, no
+   matching rule, or an impact matrix without `increment_multiplier`.
+   Excluded employees are kept as lines and counted; nothing is dropped.
+3. **Compa-ratio** = current salary ÷ reference salary, rounded half-up to 4
+   decimals (the exact value is kept in the trace). The reference (for
+   example a salary-range midpoint) is named per cycle; CR is a configurable
+   input, not an authoritative figure, until the policy is confirmed.
+4. **Rating** from the KRA performance matrix (`weighted_score` = the annual
+   final score), then **increment %** from the increment matrix; with
+   `IMPACT_MULTIPLIER`, × the impact multiplier. Final % rounded half-up to 2
+   decimals.
+5. **Amount** = salary × final % ÷ 100: the exact amount (6 decimals) and the
+   amount rounded half-up to the cent are both stored; **new salary** = salary
+   + rounded amount. Increment %, amount and new salary are separate columns.
+6. **Trace** per line: the annual result version and score, the baseline row,
+   the CR computation, each matrix step (matrix, version, content SHA-256,
+   inputs, matched rule, outputs) and the rounding applied.
+
+**Totals and reconciliation.** The requirement is the sum of the rounded
+employee amounts; the unrounded sum and the rounding difference (Σ rounded −
+Σ exact) are shown, never redistributed. Totals are broken down by plant and
+department, and the reconciliation confirms that the line total equals the
+unit total, that each employee is counted once and that every employee is
+included or excluded with a reason. Negative adjustments are counted (a
+matrix may define one; none is assumed).
+
+**Variance** against the current approved budget: difference = approved −
+requirement; % = difference ÷ requirement × 100 (2 decimals); `UNDER_BUDGET`
+(an unallocated balance), `ON_BUDGET` or `OVER_BUDGET` (an overspend).
+Individual increments are **never** adjusted to fit the budget: a different
+outcome needs revised matrices (new approved versions) and a new scenario.
+
+### Workflow
+
+| Step | Who | Effect |
+|---|---|---|
+| Create / edit a cycle | GLOBAL `compensation:manage` (HR Head) | code (immutable), PMS cycle, currency, effective date (matrix versions in force on it are used), CR method and reference label; edits only while OPEN and no scenario awaits the CHRO |
+| Import a salary baseline | GLOBAL `compensation:manage` | validate (preview, nothing saved), then confirm: the whole file becomes baseline version *N+1* or nothing is stored |
+| Calculate a scenario | GLOBAL `compensation:manage` | frozen lines and totals with the matrix versions used and an inputs SHA-256; scenario *N+1*; explicitly chosen (for example draft) versions make it **analysis only** |
+| Record the approved budget | GLOBAL `budget:record` (budget owner) | amount (≥ 0, 2 decimals) and reason (≥ 10 characters); a new decision version, the previous one SUPERSEDED with its amount kept |
+| Submit a scenario | GLOBAL `compensation:manage` | CALCULATED, not analysis only, at least one employee included, not out of date; one submitted scenario per cycle |
+| Approve / reject | GLOBAL `budget:approve` (CHRO) | reason (≥ 10 characters); never the preparer or submitter; approval also needs a recorded budget not recorded by the approver and a scenario that is not out of date |
+
+A scenario is **out of date** when an annual result it used is no longer the
+current approved one or is flagged for recalculation, an employee has a newer
+approved annual result, or a matrix version it used is no longer published or
+in force on the effective date. It can then be neither submitted nor
+approved; calculate a new scenario (the old one is kept unchanged).
+
+Approval, in one transaction: the scenario becomes FINALIZED with the budget
+decision it was approved against, every other open scenario of the cycle
+becomes SUPERSEDED and the cycle FINALIZED; after that no budget decision,
+scenario or cycle change is accepted. Every step is audited with its actor,
+time, reason and the before/after values; scenario events carry aggregate
+totals only.
+
+### Visibility
+
+| Reader | Sees |
+|---|---|
+| `compensation:read` (Admin, CHRO, HR Head) | cycles, baselines (salaries), every scenario line with its explanation |
+| `budget:read` only (budget owner) | cycles, budget decisions, scenario totals and variance; **no employee lines or salaries**; a plant/department row with fewer than 3 included employees shows counts but hides its amounts |
+| GLOBAL `budget:read` | company totals; a plant- or department-scoped reader sees only units they cover |
+| anyone else | nothing (403); the navigation hides the section |
+
+### Tables (migration `b9ca7334ef58`)
+
+| Table | Purpose | Key rules |
+|---|---|---|
+| `compensation_cycles` | a compensation cycle linked to a PMS cycle | unique code; status OPEN → FINALIZED |
+| `compensation_baselines` | an imported salary baseline version (file name, SHA-256, size, format, row count, who imported it) | unique (cycle, version_no); never edited |
+| `compensation_baseline_rows` | one employee's salaries in a baseline | unique (baseline, employee); CHECK salaries > 0 |
+| `budget_scenarios` | a frozen calculation: copied configuration, matrix versions used, overrides, totals, inputs SHA-256, lifecycle and decision | unique (cycle, scenario_no); one FINALIZED per cycle via a generated key; CHECK decider ≠ preparer and submitter |
+| `budget_scenario_lines` | one employee's proposal or exclusion with inputs, outputs, matrix versions and trace | unique (scenario, employee) |
+| `budget_decisions` | versions of the company-approved budget amount | unique (cycle, version_no); one CURRENT per cycle via a generated key; CHECK amount ≥ 0 |
+
+Migration effects (reviewed before applying): six new tables and their
+indexes only; no existing table, column or row changes. `downgrade()` drops
+the six tables and is never run without approval.
+
+### Permissions (added to the role map)
+
+| Permission | Roles |
+|---|---|
+| `compensation:read` | ADMIN, CHRO, HR_HEAD |
+| `compensation:manage` | HR_HEAD |
+| `budget:read` | ADMIN, CHRO, HR_HEAD, BUDGET_USER |
+| `budget:record` | BUDGET_USER |
+| `budget:approve` | CHRO |
+
+Cycle-level actions need GLOBAL scope. Matrix authoring and approval keep the
+Stage K rules (`matrix:write` HR Head, `matrix:approve` CHRO;
+`matrix:read_compensation` to read CR-impact and increment matrices).
+
 ## Deferred, by design
 
-- Grades and salary bands (needed for compa-ratio), JDs, KRAs, monthly data,
-  scores and budgets come in later stages.
+- Salary-band tables, eligibility rules, cross-plant apportionment of
+  increments and any budget allocation policy (for example pro-rating to fit
+  a budget) await approved business rules; Stage N stores the inputs they
+  would need and changes no increment to fit a budget.
 - Role-assignment history and audit logging. `user_roles` currently represents
   current access only.
 - Timestamps use the MySQL server clock (local time). Revisit before any

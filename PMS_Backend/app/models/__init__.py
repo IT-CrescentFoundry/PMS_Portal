@@ -6,6 +6,14 @@ when Alembic (migrations/env.py) autogenerates migrations.
 from app.models.access import Role, User, UserRole, UserRoleScope
 from app.models.annual import AnnualResult, AnnualScoreDeviation
 from app.models.audit import AuditEvent
+from app.models.compensation import (
+    BudgetDecision,
+    BudgetScenario,
+    BudgetScenarioLine,
+    CompensationBaseline,
+    CompensationBaselineRow,
+    CompensationCycle,
+)
 from app.models.correction import QuarterCorrection, QuarterCorrectionItem
 from app.models.cycle import PmsCycle, PmsCycleQuarter
 from app.models.employee import Employee, EmployeeAssignment
@@ -13,7 +21,12 @@ from app.models.enums import (
     AnnualDeviationStatus,
     AnnualResultStatus,
     AuditActorType,
+    BudgetDecisionStatus,
+    BudgetLineStatus,
+    BudgetScenarioStatus,
     CohortLevel,
+    CompaRatioMethod,
+    CompensationCycleStatus,
     CorrectionItemKind,
     CorrectionStatus,
     CycleStatus,
@@ -63,7 +76,18 @@ __all__ = [
     "AssignmentScoreWeight",
     "AuditActorType",
     "AuditEvent",
+    "BudgetDecision",
+    "BudgetDecisionStatus",
+    "BudgetLineStatus",
+    "BudgetScenario",
+    "BudgetScenarioLine",
+    "BudgetScenarioStatus",
     "CohortLevel",
+    "CompaRatioMethod",
+    "CompensationBaseline",
+    "CompensationBaselineRow",
+    "CompensationCycle",
+    "CompensationCycleStatus",
     "CorrectionItemKind",
     "CorrectionStatus",
     "CycleStatus",

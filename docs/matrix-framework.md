@@ -254,15 +254,39 @@ boundaries, overlaps, evaluation), `tests/test_matrix_templates.py`
 (template round trip, old versions), `tests/test_matrices.py` (workflow and
 permissions) and, in the frontend, `src/features/matrix/matrixDraft.test.ts`.
 
-## Prepared types awaiting approved configuration
+## Compensation types (used from Stage N)
 
 | Type | Code prefix | Inputs | Outputs | Read access |
 |---|---|---|---|---|
-| KRA performance matrix | `KRM` | weighted KPI score (+ custom) | performance rating 1–5 | `matrix:read` |
-| Compa-ratio impact matrix | `CRM` | compa-ratio, performance rating | defined by HR | `matrix:read_compensation` |
-| Increment matrix | `INM` | performance rating, compa-ratio | increment % | `matrix:read_compensation` |
+| KRA performance matrix | `KRM` | `weighted_score` = the approved annual final score (+ custom) | `rating` 1–5 | `matrix:read` |
+| Compa-ratio impact matrix | `CRM` | `compa_ratio`, `performance_rating` | defined by HR; the calculation reads `increment_multiplier` | `matrix:read_compensation` |
+| Increment matrix | `INM` | `performance_rating`, `compa_ratio` | `increment_percent` | `matrix:read_compensation` |
+
+They are authored, tested, submitted, approved by the CHRO and published like
+every other type (portal or Excel template), and selected by applicability:
+company-wide or per plant/department, with at most one published version of
+a type applying to a unit on a date. A compensation cycle uses the versions in
+force on its effective date for each employee's unit (the unit of the
+employee's annual result):
+
+- **`MATRIX_INPUT`** cycles use the KRA and increment matrices; the increment
+  matrix may condition on `compa_ratio`.
+- **`IMPACT_MULTIPLIER`** cycles also use a compa-ratio impact matrix, which
+  must define a DECIMAL output with the key `increment_multiplier` (final % =
+  base increment % × multiplier). An impact matrix without it excludes the
+  employee with a clear reason rather than assuming 1.
+
+Custom inputs of these types may use the other values a cycle provides:
+`annual_score`, `compa_ratio`, `performance_rating` (after the KRA step) and
+`grade` (from the salary baseline). Only the inputs a
+matrix declares are passed to it; a required input that is missing (for
+example no reference salary, so no compa-ratio) excludes the employee.
 
 No CR bands, salary-range midpoints, increment percentages, budget rules or
-compensation values are defined anywhere in the code or the seed. These
-types can be configured and approved in the portal, but nothing is
-calculated with them until the later stages that use them.
+compensation values are defined anywhere in the code or the seed. Until a
+version is approved and published, the type shows **Awaiting approved
+configuration**; a scenario calculated with explicitly chosen draft or
+unpublished versions is analysis only and can never become the final budget.
+A revised matrix is a new version: scenarios already calculated keep the
+versions they used and become out of date, and a new scenario recalculates
+transparently with the new version.

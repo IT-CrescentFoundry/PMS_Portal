@@ -13,6 +13,7 @@ from app.db import engine
 from app.routers import (
     annual,
     auth,
+    compensation,
     corrections,
     employees,
     jd,
@@ -67,6 +68,7 @@ app.include_router(matrix.router)
 app.include_router(quarterly.router)
 app.include_router(corrections.router)
 app.include_router(annual.router)
+app.include_router(compensation.router)
 
 
 @app.exception_handler(NotFoundError)

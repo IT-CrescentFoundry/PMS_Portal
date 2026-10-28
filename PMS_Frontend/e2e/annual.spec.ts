@@ -16,8 +16,16 @@
  * Annual score (equally weighted quarters): 3.95; an Admin's deviation to
  * 4.00 is approved by the CHRO; after the Q2 correction, 4.10.
  */
-import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test'
-import { API_ORIGIN, collectConsoleErrors, e2ePassword, signIn, signOut } from './helpers'
+import { expect, test, type Page } from '@playwright/test'
+import {
+        apiAs,
+        collectConsoleErrors,
+        findRunCycle,
+        publishDemoQuarter,
+        signIn,
+        signOut,
+        type RunCycle,
+} from './helpers'
 
 const VALUES: [string, string, string][] = [
         ['2026-04', '105', '1.9'],
@@ -26,84 +34,16 @@ const VALUES: [string, string, string][] = [
         ['2026-07', '102', '1.5'],
 ]
 
-interface Run {
-        cycleId: number
-        cycleName: string
-        quarters: { id: number; name: string }[]
-        sheets: number[] // DEMO0005's sheet in each quarter
-        employeeId: number
-}
-
-let run: Run
+let run: RunCycle
 let correctionPath = ''
 let consoleErrors: string[] = []
 
 test.describe.configure({ mode: 'serial' })
 
-async function apiAs(username: string): Promise<APIRequestContext> {
-        const anonymous = await request.newContext({ baseURL: API_ORIGIN })
-        const login = await anonymous.post('/api/auth/token', {
-                form: { username, password: e2ePassword() },
-        })
-        expect(login.ok()).toBe(true)
-        const { access_token } = (await login.json()) as { access_token: string }
-        await anonymous.dispose()
-        return request.newContext({
-                baseURL: API_ORIGIN,
-                extraHTTPHeaders: { Authorization: `Bearer ${access_token}` },
-        })
-}
-
-async function ok<T = unknown>(
-        response: Awaited<ReturnType<APIRequestContext['get']>>,
-): Promise<T> {
-        expect(response.ok(), await response.text()).toBe(true)
-        return (await response.json()) as T
-}
-
-interface CycleRef {
-        id: number
-        code: string
-        name: string
-        quarters: { id: number; name: string; quarter_number: number }[]
-}
-
-interface SheetRows {
-        rows: {
-                assignment: { employee: { id: number; employee_code: string } }
-                sheet: { id: number } | null
-        }[]
-}
-
 test.beforeAll(async () => {
         const api = await apiAs('demo.hrhead')
-        const cycles = await ok<CycleRef[]>(await api.get('/api/annual/cycles'))
-        // The cycle seeded for this run is the newest one.
-        const cycle = cycles
-                .filter((c) => c.code.startsWith('E2E-A'))
-                .sort((a, b) => b.id - a.id)[0]
-        expect(cycle).toBeTruthy()
-        const quarters = [...cycle.quarters].sort((a, b) => a.quarter_number - b.quarter_number)
-        const sheets: number[] = []
-        let employeeId = 0
-        for (const q of quarters) {
-                const list = await ok<SheetRows>(
-                        await api.get('/api/kpi/sheets', { params: { quarter_id: q.id } }),
-                )
-                const row = list.rows.find(
-                        (r) => r.sheet && r.assignment.employee.employee_code === 'DEMO0005',
-                )!
-                sheets.push(row.sheet!.id)
-                employeeId = row.assignment.employee.id
-        }
+        run = await findRunCycle(api, 'E2E-A')
         await api.dispose()
-        run = {
-                cycleId: cycle.id,
-                cycleName: cycle.name,
-                quarters: quarters.map((q) => ({ id: q.id, name: q.name })),
-                sheets,
-                employeeId,
-        }
 })
 
 test.beforeEach(({ page }) => {
@@ -128,50 +68,8 @@ test('four quarterly results are published for the synthetic employee', async ({
         // The quarterly workflow itself is covered in the browser by quarterly.spec.ts;
         // here the same API steps publish four quarters quickly.
         const api = await apiAs('demo.hrhead')
-        for (const [index, [month, dispatch, productivity]] of VALUES.entries()) {
-                const q = run.quarters[index]
-                const csv = [
-                        'Employee Code,Plant Code,Department Code,KPI,Period,Actual',
-                        `DEMO0005,PLT-A,PROD,KPI-D02,${month},${dispatch}`,
-                        `DEMO0005,PLT-A,PROD,KPI-D06,${month},${productivity}`,
-                ].join('\n')
-                await ok(
-                        await api.post('/api/kpi/data/confirm', {
-                                multipart: {
-                                        quarter_id: String(q.id),
-                                        period: month,
-                                        file: {
-                                                name: `e2e-${month}.csv`,
-                                                mimeType: 'text/csv',
-                                                buffer: Buffer.from(csv),
-                                        },
-                                },
-                        }),
-                )
-                await ok(
-                        await api.post('/api/kpi/results/calculate', {
-                                data: { quarter_id: q.id },
-                        }),
-                )
-                const step = (to: string) =>
-                        api.post(`/api/kpi/quarters/${q.id}/transition`, {
-                                data: { to, reason: null },
-                        })
-                await ok(await step('DEPARTMENT_REVIEW'))
-                await ok(await api.post(`/api/kpi/results/${run.sheets[index]}/review`))
-                await ok(await step('NORMALIZATION'))
-                const cohorts = await ok<{ id: number }[]>(
-                        await api.get(`/api/kpi/quarters/${q.id}/normalization`),
-                )
-                for (const c of cohorts)
-                        await ok(
-                                await api.post(`/api/kpi/normalization-runs/${c.id}/approve`, {
-                                        data: {},
-                                }),
-                        )
-                await ok(await step('READY'))
-                await ok(await api.post(`/api/kpi/quarters/${q.id}/publish`))
-        }
+        for (const [index, values] of VALUES.entries())
+                await publishDemoQuarter(api, run.quarters[index].id, run.sheets[index], values)
         await api.dispose()
 
         await signIn(page, 'demo.hrhead')

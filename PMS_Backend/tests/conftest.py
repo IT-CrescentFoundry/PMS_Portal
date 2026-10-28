@@ -851,3 +851,175 @@ def annual_env(kpi_env: KpiEnv, as_role, db: Session, fixed_today) -> AnnualEnv:
         users[key], clients[key] = as_role(f"tst.an.{key}", grants)
     policy = published_normalization_policy(db)
     return AnnualEnv(kpi_env, cycle, quarters, policy, users, clients, db)
+
+
+# --- Stage N (compensation and budget) fixtures --------------------------------------------
+# Every matrix value and salary below is SYNTHETIC test data, not company policy.
+
+from app.services.matrix_types import CR_IMPACT, INCREMENT, KRA_PERFORMANCE, get_type  # noqa: E402
+
+
+def _range(lo=None, lo_inc=None, hi=None, hi_inc=None) -> dict:
+    return {"min": lo, "min_inclusive": lo_inc, "max": hi, "max_inclusive": hi_inc}
+
+
+def _rule(priority: int, label: str, conditions: dict, outputs: dict) -> dict:
+    return {"priority": priority, "label": label, "conditions": conditions, "outputs": outputs}
+
+
+def _rating(lo: int, hi: int | None = None) -> dict:
+    return _range(str(lo), True, str(hi if hi is not None else lo), True)
+
+
+MULTIPLIER_FIELD = {"key": "increment_multiplier", "label": "Increment multiplier",
+                    "role": "output", "data_type": "DECIMAL", "unit": None, "description": None,
+                    "required": True, "min": "0", "max": None, "allowed_values": None,
+                    "source": None, "aggregation": None, "round_to": None}
+
+# Annual score -> rating: from 3.95 5; 3-3.95 4; 2-3 3; below 2 2.
+KRA_TEST_DEFINITION = {
+    "fields": [KRA_PERFORMANCE.standard_input("weighted_score").as_definition(),
+               KRA_PERFORMANCE.outputs[0].as_definition()],
+    "rules": [
+        _rule(1, "Outstanding", {"weighted_score": _range("3.95", True)}, {"rating": 5}),
+        _rule(2, "Strong", {"weighted_score": _range("3", True, "3.95", False)}, {"rating": 4}),
+        _rule(3, "Solid", {"weighted_score": _range("2", True, "3", False)}, {"rating": 3}),
+        _rule(4, "Developing", {"weighted_score": _range("0", True, "2", False)}, {"rating": 2}),
+    ],
+    "no_match": {"mode": "error"}, "test_cases": []}
+
+# Increment % by rating and compa-ratio (the MATRIX_INPUT method).
+INCREMENT_CR_TEST_DEFINITION = {
+    "fields": [INCREMENT.standard_input("performance_rating").as_definition(),
+               INCREMENT.standard_input("compa_ratio").as_definition(),
+               INCREMENT.outputs[0].as_definition()],
+    "rules": [
+        _rule(1, "5 below the reference", {"performance_rating": _rating(5),
+                                           "compa_ratio": _range("0", True, "1", False)},
+              {"increment_percent": "12"}),
+        _rule(2, "5 at or above", {"performance_rating": _rating(5),
+                                   "compa_ratio": _range("1", True)},
+              {"increment_percent": "10"}),
+        _rule(3, "4 below the reference", {"performance_rating": _rating(4),
+                                           "compa_ratio": _range("0", True, "1", False)},
+              {"increment_percent": "9"}),
+        _rule(4, "4 at or above", {"performance_rating": _rating(4),
+                                   "compa_ratio": _range("1", True)},
+              {"increment_percent": "7.5"}),
+        _rule(5, "3", {"performance_rating": _rating(3)}, {"increment_percent": "5"}),
+        _rule(6, "1-2", {"performance_rating": _rating(1, 2)}, {"increment_percent": "2"}),
+    ],
+    "no_match": {"mode": "error"}, "test_cases": []}
+
+# Base increment % by rating only (the IMPACT_MULTIPLIER method).
+INCREMENT_BASE_TEST_DEFINITION = {
+    "fields": [INCREMENT.standard_input("performance_rating").as_definition(),
+               INCREMENT.outputs[0].as_definition()],
+    "rules": [_rule(1, "5", {"performance_rating": _rating(5)}, {"increment_percent": "10"}),
+              _rule(2, "4", {"performance_rating": _rating(4)}, {"increment_percent": "8"}),
+              _rule(3, "3", {"performance_rating": _rating(3)}, {"increment_percent": "5"}),
+              _rule(4, "1-2", {"performance_rating": _rating(1, 2)}, {"increment_percent": "2"})],
+    "no_match": {"mode": "error"}, "test_cases": []}
+
+
+def cr_impact_definition(output: dict | None = None) -> dict:
+    """Compa-ratio -> multiplier: below 0.9 1.2; 0.9-1.1 1; from 1.1 0.8."""
+    field_def = output or MULTIPLIER_FIELD
+    key = field_def["key"]
+    return {
+        "fields": [CR_IMPACT.standard_input("compa_ratio").as_definition(), field_def],
+        "rules": [_rule(1, "Below 0.9", {"compa_ratio": _range("0", True, "0.9", False)},
+                        {key: "1.2"}),
+                  _rule(2, "0.9 to 1.1", {"compa_ratio": _range("0.9", True, "1.1", False)},
+                        {key: "1"}),
+                  _rule(3, "From 1.1", {"compa_ratio": _range("1.1", True)}, {key: "0.8"})],
+        "no_match": {"mode": "error"}, "test_cases": []}
+
+
+def published_type_matrix(db: Session, matrix_type: str, definition: dict, *, name: str,
+                          effective_from: date = date(2026, 4, 1),
+                          effective_to: date | None = None) -> MatrixVersion:
+    """A company-wide matrix of `matrix_type` with a PUBLISHED version 1, as if
+    authored, approved and published earlier (synthetic test content)."""
+    _definition, report = matrix_rules.analyse(get_type(matrix_type), definition)
+    assert report.ok, [e.message for e in report.errors]
+    matrix = Matrix(code=f"T{matrix_type[:3]}-{name[:12]}", matrix_type=matrix_type, name=name,
+                    attributes={})
+    db.add(matrix)
+    db.flush()
+    version = MatrixVersion(
+        matrix_id=matrix.id, version_no=1, status=MatrixVersionStatus.PUBLISHED, schema_version=1,
+        definition=definition, definition_hash=matrix_rules.definition_hash(definition),
+        effective_from=effective_from, effective_to=effective_to, source=MatrixVersionSource.SEED,
+        scopes=[MatrixVersionScope(plant_id=None, department_id=None)])
+    db.add(version)
+    db.flush()
+    return version
+
+
+BASELINE_HEADER = ["Employee Code", "Current Salary", "Reference Salary", "Grade", "Eligible",
+                   "Exclusion Reason"]
+# CR: TST010 0.9231, TST001 1.0526, TST002 0.9000; TST003 has no annual result.
+TEST_BASELINE = [["TST010", "600000", "650000", "", "Yes", ""],
+                 ["TST001", "800000", "760000", "", "Yes", ""],
+                 ["TST002", "450000.50", "500000", "", "Yes", ""],
+                 ["TST003", "500000", "500000", "", "Yes", ""]]
+
+
+@dataclass
+class CompEnv:
+    """annual_env with every annual result approved (TST010 4.00, TST001 3.90,
+    TST002 2.25). Clients: hr (HR Head), chro, admin, budget (budget owner),
+    head (Quality head, no compensation access), plus the annual_env ones."""
+
+    annual: AnnualEnv
+    clients: dict[str, TestClient]
+    users: dict[str, User]
+    db: Session
+
+    def ok(self, resp, code: int = 200):
+        assert resp.status_code == code, resp.text
+        return resp.json() if resp.content else None
+
+    def employee_id(self, code: str) -> int:
+        return self.annual.employee_id(code)
+
+    def create_cycle(self, method: str = "MATRIX_INPUT", effective: str = "2026-08-01",
+                     code: str = "TST-COMP") -> dict:
+        return self.ok(self.clients["hr"].post("/api/compensation/cycles", json={
+            "code": code, "name": f"Test compensation {code}", "currency": "INR",
+            "pms_cycle_id": self.annual.cycle.id, "effective_date": effective,
+            "cr_method": method, "reference_label": "salary-range midpoint"}), 201)
+
+    def baseline(self, cycle_id: int, rows=None, step: str = "confirm", client: str = "hr"):
+        return self.clients[client].post(
+            f"/api/compensation/cycles/{cycle_id}/baseline/{step}",
+            files={"file": ("baseline.csv", csv_bytes(rows or TEST_BASELINE, BASELINE_HEADER),
+                            "text/csv")})
+
+    def scenario(self, cycle_id: int, name: str = "Base", client: str = "hr", **body):
+        return self.clients[client].post(f"/api/compensation/cycles/{cycle_id}/scenarios",
+                                         json={"name": name, **body})
+
+    def decide(self, cycle_id: int, amount: str, reason: str = "Board budget letter of 2026",
+               client: str = "budget"):
+        return self.clients[client].post(f"/api/compensation/cycles/{cycle_id}/budget-decisions",
+                                         json={"amount": amount, "reason": reason})
+
+
+def lines_by_code(scenario: dict) -> dict[str, dict]:
+    return {line["employee"]["employee_code"]: line for line in scenario["lines"]}
+
+
+@pytest.fixture
+def comp_env(annual_env: AnnualEnv, as_role, db: Session) -> CompEnv:
+    annual_env.publish_all()
+    annual_env.calculate()
+    for row in annual_env.rows("chro").values():
+        annual_env.ok(annual_env.clients["chro"].post(
+            f"/api/annual/results/{row['draft']['id']}/finalize", json={}))
+    clients = dict(annual_env.clients)
+    users = dict(annual_env.users)
+    users["budget"], clients["budget"] = as_role(
+        "tst.cp.budget", [("BUDGET_USER", [(ScopeType.GLOBAL, None, None)])])
+    return CompEnv(annual_env, clients, users, db)

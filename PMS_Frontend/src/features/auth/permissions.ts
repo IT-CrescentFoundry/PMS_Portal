@@ -23,6 +23,11 @@ export const PERMISSION_ANNUAL_DEVIATION_REQUEST = 'annual:deviation_request'
 export const PERMISSION_ANNUAL_APPROVE = 'annual:approve'
 export const PERMISSION_CORRECTION_REQUEST = 'quarter:correction_request'
 export const PERMISSION_CORRECTION_APPROVE = 'quarter:correction_approve'
+export const PERMISSION_COMPENSATION_READ = 'compensation:read'
+export const PERMISSION_COMPENSATION_MANAGE = 'compensation:manage'
+export const PERMISSION_BUDGET_READ = 'budget:read'
+export const PERMISSION_BUDGET_RECORD = 'budget:record'
+export const PERMISSION_BUDGET_APPROVE = 'budget:approve'
 
 /** Roles that may fill HR-only JD fields (available budget). Mirrors the API. */
 const HR_ROLE_CODES = new Set(['HR', 'HR_HEAD', 'CHRO', 'ADMIN'])
@@ -107,6 +112,21 @@ export function canWorkOnCorrections(user: CurrentUser): boolean {
                 PERMISSION_QUARTER_START,
                 PERMISSION_SCORE_PUBLISH,
         ].some((p) => has(user, p))
+}
+
+/** Budget totals, scenarios and decisions (no employee-level amounts by itself). */
+export function canReadBudget(user: CurrentUser): boolean {
+        return has(user, PERMISSION_BUDGET_READ)
+}
+
+/** HR Head: compensation cycles, salary baselines, scenarios. */
+export function canManageCompensation(user: CurrentUser): boolean {
+        return has(user, PERMISSION_COMPENSATION_MANAGE)
+}
+
+/** Employee-level compensation (salaries, proposals and their explanations). */
+export function canReadCompensation(user: CurrentUser): boolean {
+        return has(user, PERMISSION_COMPENSATION_READ)
 }
 
 /** May open their own employee record. */

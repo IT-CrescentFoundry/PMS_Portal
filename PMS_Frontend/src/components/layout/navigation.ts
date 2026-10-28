@@ -20,12 +20,14 @@ import {
         UserRound,
         Users,
         UsersRound,
+        Wallet,
         type LucideIcon,
 } from 'lucide-react'
 import {
         canApproveDeviationAsHR,
         canApproveDeviationAsPlant,
         canReadAnnual,
+        canReadBudget,
         canReadMatrices,
         canReadOrganization,
         canReadOwnRecord,
@@ -192,6 +194,19 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                         ],
                 })
         }
+        if (canReadBudget(user)) {
+                const at = groups.findIndex((g) => g.label === 'Annual')
+                groups.splice(at === -1 ? groups.length : at + 1, 0, {
+                        label: 'Compensation',
+                        items: [
+                                {
+                                        label: 'Compensation & budget',
+                                        to: '/compensation',
+                                        icon: Wallet,
+                                },
+                        ],
+                })
+        }
         const account: NavItem[] = [
                 {
                         label: 'My profile',
@@ -234,6 +249,7 @@ const SECTION_TITLES: [prefix: string, title: string][] = [
         ['/scores/employees', 'Scoring · Employee results'],
         ['/scores/quarters', 'Scoring · Employee results'],
         ['/scores/normalization', 'Scoring · Normalization'],
+        ['/compensation', 'Compensation · Budget'],
         ['/annual/deviations', 'Annual · Deviations'],
         ['/annual', 'Annual · Annual results'],
         ['/my/kpi-sheets', 'Account · My KPI sheets'],

@@ -24,6 +24,11 @@ Stage M adds a fresh annual cycle per run ("E2E-A<timestamp>"): four
 one-month quarters (April-July 2026), each in data collection with a locked
 sheet for DEMO0005. The annual spec publishes the four quarters, calculates
 and approves the annual result, then corrects a quarter and recalculates.
+
+Stage N adds another such cycle per run ("E2E-C<timestamp>", quarters
+"E2E C1"-"E2E C4") for the compensation spec, which publishes it, approves the
+annual result and builds a budget on synthetic matrices and salaries (salaries
+exist only in the spec's uploaded file, never in seed data).
 """
 import os
 import secrets
@@ -155,16 +160,17 @@ def seed_run_quarter(session) -> str:
     return cycle.code
 
 
-def seed_annual_cycle(session) -> str:
+def seed_annual_cycle(session, letter: str = "A", purpose: str = "annual") -> str:
     """A fresh annual cycle for this run (Stage M): four one-month quarters,
     April-July 2026, each in data collection with a locked sheet for
-    DEMO0005. The annual spec publishes all four, then corrects one."""
+    DEMO0005. The annual spec publishes all four, then corrects one; the
+    compensation spec (letter "C") publishes its own."""
     from datetime import date, datetime, timedelta
 
     from app.models import CycleStatus, PmsCycle, PmsCycleQuarter, QuarterStatus
 
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    cycle = PmsCycle(code=f"E2E-A{stamp}", name=f"E2E annual {stamp}",
+    cycle = PmsCycle(code=f"E2E-{letter}{stamp}", name=f"E2E {purpose} {stamp}",
                      start_date=date(2026, 4, 1), end_date=date(2026, 7, 31),
                      status=CycleStatus.ACTIVE)
     session.add(cycle)
@@ -172,7 +178,8 @@ def seed_annual_cycle(session) -> str:
     for number, (month, label) in enumerate(ANNUAL_MONTHS, 1):
         start = date(2026, month, 1)
         quarter = PmsCycleQuarter(
-            cycle_id=cycle.id, quarter_number=number, name=f"E2E A{number} ({label} 2026)",
+            cycle_id=cycle.id, quarter_number=number,
+            name=f"E2E {letter}{number} ({label} 2026)",
             start_date=start, end_date=date(2026, month + 1, 1) - timedelta(days=1),
             status=QuarterStatus.OPEN)
         session.add(quarter)
@@ -212,8 +219,10 @@ def main() -> None:
         seed(session, demo_password=password)
         run_cycle = seed_run_quarter(session)
         annual_cycle = seed_annual_cycle(session)
+        compensation_cycle = seed_annual_cycle(session, "C", "compensation")
     print(f"[e2e-server] Database '{e2e_db}' migrated and seeded (run quarter {run_cycle}, "
-          f"annual cycle {annual_cycle}); serving on port {port}.")
+          f"annual cycle {annual_cycle}, compensation cycle {compensation_cycle}); serving on "
+          f"port {port}.")
 
     import uvicorn
 

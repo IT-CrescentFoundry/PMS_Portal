@@ -196,12 +196,17 @@ def _codes(db: Session, principal: Principal) -> tuple[list[Plant], list[Departm
 # --- types ---------------------------------------------------------------------------------
 
 @router.get("/matrix-types")
-def list_types(principal: CurrentPrincipal) -> list[dict[str, Any]]:
+def list_types(db: DbSession, principal: CurrentPrincipal) -> list[dict[str, Any]]:
     specs = service.readable_types(principal)
     if not specs:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="You do not have access to matrix configurations.")
-    return [type_metadata(s) for s in specs]
+    # The "awaiting approved configuration" note applies only until a version
+    # of the type has been approved and published.
+    published = set(db.scalars(select(Matrix.matrix_type).join(MatrixVersion).where(
+        Matrix.is_active, MatrixVersion.status == MatrixVersionStatus.PUBLISHED)).all())
+    return [{**type_metadata(s), "policy_note": None if s.code in published else s.policy_note}
+            for s in specs]
 
 
 @router.get("/matrix-types/{code}/template")

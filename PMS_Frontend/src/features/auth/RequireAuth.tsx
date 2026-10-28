@@ -4,7 +4,7 @@ import { LockKeyhole } from 'lucide-react'
 import { PageHeader } from '../../components/common/PageHeader'
 import { useAuth, useCurrentUser } from './AuthContext'
 import { CheckingSession, ServiceUnavailable } from './FullPageStatus'
-import { canReadAnnual, canReadOrganization } from './permissions'
+import { canReadAnnual, canReadBudget, canReadOrganization } from './permissions'
 
 export interface LoginRedirectState {
         from?: string
@@ -47,6 +47,13 @@ export function RequireOrgAccess() {
 export function RequireAnnualAccess() {
         const user = useCurrentUser()
         if (canReadAnnual(user)) return <Outlet />
+        return <AccessDenied />
+}
+
+/** Compensation and budget: only for users whose roles carry budget:read. */
+export function RequireBudgetAccess() {
+        const user = useCurrentUser()
+        if (canReadBudget(user)) return <Outlet />
         return <AccessDenied />
 }
 

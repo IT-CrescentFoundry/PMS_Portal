@@ -1597,3 +1597,243 @@ export interface QuarterVersion {
         published_by: UserRef | null
         published_at: string | null
 }
+
+// --- Stage N: compensation cycles, salary baselines, budget scenarios -------------------
+
+export type CompaRatioMethod = 'MATRIX_INPUT' | 'IMPACT_MULTIPLIER'
+export type CompensationCycleStatus = 'OPEN' | 'FINALIZED'
+export type BudgetScenarioStatus =
+        'CALCULATED' | 'SUBMITTED' | 'FINALIZED' | 'REJECTED' | 'SUPERSEDED'
+export type BudgetLineStatus = 'INCLUDED' | 'EXCLUDED'
+export type BudgetDecisionStatus = 'CURRENT' | 'SUPERSEDED'
+
+export interface CompensationCycleWrite {
+        code: string
+        name: string
+        pms_cycle_id: number
+        currency: string
+        effective_date: string
+        cr_method: CompaRatioMethod
+        reference_label: string
+        notes: string | null
+}
+
+export interface CompensationCycle {
+        id: number
+        code: string
+        name: string
+        status: CompensationCycleStatus
+        pms_cycle: { id: number; code: string; name: string }
+        currency: string
+        effective_date: string
+        cr_method: CompaRatioMethod
+        reference_label: string
+        notes: string | null
+        finalized_at: string | null
+        finalized_by: UserRef | null
+}
+
+export interface CompensationMatrixRef {
+        version_id: number
+        matrix_id: number
+        code: string
+        name: string
+        version_no: number
+        status: string
+}
+
+export interface BaselineSummary {
+        id: number
+        version_no: number
+        file_name: string
+        row_count: number
+        imported_by: UserRef | null
+        created_at: string
+}
+
+export interface BudgetDecision {
+        id: number
+        version_no: number
+        status: BudgetDecisionStatus
+        approved_amount: string
+        previous_amount: string | null
+        reason: string
+        recorded_by: UserRef | null
+        recorded_at: string
+}
+
+export interface BudgetVariance {
+        decision_id: number
+        decision_version: number
+        approved_budget: string
+        requirement: string
+        difference: string
+        difference_percent: string | null
+        state: 'UNDER_BUDGET' | 'OVER_BUDGET' | 'ON_BUDGET'
+        unallocated_balance: string
+        overspend: string
+}
+
+export interface BudgetScenarioSummary {
+        id: number
+        scenario_no: number
+        name: string
+        status: BudgetScenarioStatus
+        analysis_only: boolean
+        baseline_version_no: number
+        included_count: number
+        excluded_count: number
+        /** Null for readers without company-wide budget access. */
+        total_increment: string | null
+        calculated_by: UserRef | null
+        calculated_at: string
+        submitted_by: UserRef | null
+        submitted_at: string | null
+        decided_by: UserRef | null
+        decided_at: string | null
+        decision_reason: string | null
+        variance: BudgetVariance | null
+}
+
+export interface CompensationCycleDetail extends CompensationCycle {
+        policy: {
+                type: string
+                label: string
+                status: 'APPROVED' | 'AWAITING_CONFIGURATION'
+                versions: CompensationMatrixRef[]
+        }[]
+        baselines: BaselineSummary[]
+        decisions: BudgetDecision[]
+        scenarios: BudgetScenarioSummary[]
+        actions: {
+                can_manage: boolean
+                can_record_budget: boolean
+                can_approve: boolean
+                can_read_employees: boolean
+        }
+        history: AuditEntry[]
+}
+
+export interface BaselineLine {
+        row: number
+        employee: EmployeeRef
+        current_salary: string | null
+        reference_salary: string | null
+        grade: string | null
+        eligible: boolean
+        exclusion_reason: string | null
+}
+
+export interface BaselinePreview {
+        file_name: string
+        file_format: string
+        rows: number
+        eligible: number
+        not_eligible: number
+        issues: { message: string; field: string | null; row: number | null }[]
+        warnings: string[]
+        lines: BaselineLine[]
+        lines_truncated: boolean
+        ready: boolean
+}
+
+export interface BaselineRows extends BaselineSummary {
+        rows: BaselineLine[]
+}
+
+export interface BudgetUnitTotal {
+        plant: PlantRef | null
+        department: DepartmentRef | null
+        included: number
+        excluded: number
+        current_salary: string | null
+        increment: string | null
+        /** Amounts hidden: too few employees to show without revealing individuals. */
+        suppressed: boolean
+}
+
+export interface BudgetTotals {
+        population: number
+        included: number
+        excluded: number
+        excluded_by_reason: Record<string, number>
+        excluded_salary: string | null
+        total_current_salary: string | null
+        total_increment: string | null
+        total_increment_exact: string | null
+        rounding_difference: string | null
+        average_increment_percent: string | null
+        negative_adjustments: number
+        by_unit: BudgetUnitTotal[]
+        reconciliation: Record<string, string | boolean>
+}
+
+export interface ProposalStep {
+        type: string
+        matrix: CompensationMatrixRef & { content_sha256: string }
+        outputs: Record<string, unknown>
+        rule: { priority: number; label: string | null; description: string } | null
+        used_default: boolean
+        inputs: Record<string, unknown>
+}
+
+export interface ProposalTrace {
+        annual?: { annual_result_id: number; version_no: number; final_score: string }
+        baseline?: { row: number; grade: string | null; eligible: boolean }
+        compa_ratio?: {
+                current_salary: string
+                reference_salary: string
+                exact: string
+                rounded: string
+                rounding: string
+        }
+        steps?: ProposalStep[]
+        result?: {
+                method: CompaRatioMethod
+                base_increment_percent: string
+                multiplier: string
+                increment_percent: string
+                increment_amount_exact: string
+                increment_amount: string
+                new_salary: string
+                rounding: string
+        }
+        excluded?: { code: string; reason: string }
+}
+
+export interface BudgetLine {
+        employee: EmployeeRef
+        status: BudgetLineStatus
+        exclusion_code: string | null
+        exclusion_reason: string | null
+        plant: PlantRef | null
+        department: DepartmentRef | null
+        annual_score: string | null
+        current_salary: string | null
+        reference_salary: string | null
+        compa_ratio: string | null
+        performance_rating: number | null
+        base_increment_percent: string | null
+        cr_multiplier: string | null
+        increment_percent: string | null
+        increment_amount: string | null
+        increment_amount_exact: string | null
+        new_salary: string | null
+        trace: ProposalTrace
+}
+
+export interface BudgetScenario extends BudgetScenarioSummary {
+        cycle: CompensationCycle
+        note: string | null
+        cr_method: CompaRatioMethod
+        effective_date: string
+        currency: string
+        overrides: Record<string, number> | null
+        matrix_versions: (CompensationMatrixRef & { type: string })[]
+        totals: BudgetTotals
+        stale_reasons: string[]
+        /** Null for readers without employee-level compensation access. */
+        lines: BudgetLine[] | null
+        actions: { can_submit: boolean; can_approve: boolean; can_reject: boolean }
+        history: AuditEntry[]
+}

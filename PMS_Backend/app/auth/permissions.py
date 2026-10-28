@@ -59,6 +59,19 @@ class Permission(StrEnum):
     # Request a correction of a published quarter (HR Head) / decide it (CHRO).
     QUARTER_CORRECTION_REQUEST = "quarter:correction_request"
     QUARTER_CORRECTION_APPROVE = "quarter:correction_approve"
+    # Stage N. Employee-level compensation data (salary baselines, proposal
+    # lines and their explanations), within scope.
+    COMPENSATION_READ = "compensation:read"
+    # Set up compensation cycles, import salary baselines, calculate and
+    # submit budget scenarios (HR Head).
+    COMPENSATION_MANAGE = "compensation:manage"
+    # Budget totals, breakdowns, variance, scenarios and decisions (no
+    # employee-level amounts).
+    BUDGET_READ = "budget:read"
+    # Record the company-approved budget amount (budget owner).
+    BUDGET_RECORD = "budget:record"
+    # Approve or reject the final budget scenario (CHRO).
+    BUDGET_APPROVE = "budget:approve"
 
 
 P = Permission
@@ -66,23 +79,26 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     "ADMIN": frozenset({
         P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.MATRIX_READ,
         P.MATRIX_READ_COMPENSATION, P.ANNUAL_READ, P.ANNUAL_DEVIATION_REQUEST,
+        P.COMPENSATION_READ, P.BUDGET_READ,
     }),
     "CHRO": frozenset({
         P.ORG_READ, P.JD_APPROVE, P.QUARTER_START, P.DEVIATION_APPROVE_HR, P.MATRIX_READ,
         P.MATRIX_READ_COMPENSATION, P.MATRIX_APPROVE, P.SCORE_PUBLISH, P.ANNUAL_READ,
-        P.ANNUAL_APPROVE, P.QUARTER_CORRECTION_APPROVE,
+        P.ANNUAL_APPROVE, P.QUARTER_CORRECTION_APPROVE, P.COMPENSATION_READ, P.BUDGET_READ,
+        P.BUDGET_APPROVE,
     }),
     "HR_HEAD": frozenset({
         P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.DEVIATION_APPROVE_HR,
         P.MATRIX_READ, P.MATRIX_READ_COMPENSATION, P.MATRIX_WRITE, P.SCORE_PUBLISH,
-        P.ANNUAL_READ, P.QUARTER_CORRECTION_REQUEST,
+        P.ANNUAL_READ, P.QUARTER_CORRECTION_REQUEST, P.COMPENSATION_READ,
+        P.COMPENSATION_MANAGE, P.BUDGET_READ,
     }),
     "HR": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ, P.ANNUAL_READ}),
     "PLANT_HEAD": frozenset(
         {P.ORG_READ, P.JD_AUTHORISE, P.DEVIATION_APPROVE_PLANT, P.MATRIX_READ}
     ),
     "DEPT_HEAD": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ}),
-    "BUDGET_USER": frozenset({P.ORG_READ, P.MATRIX_READ}),
+    "BUDGET_USER": frozenset({P.ORG_READ, P.MATRIX_READ, P.BUDGET_READ, P.BUDGET_RECORD}),
     "EMPLOYEE": frozenset({P.SELF_READ}),
 }
 

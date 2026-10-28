@@ -167,6 +167,16 @@ Annual results and corrections of published quarters (Stage M) add:
 | `quarter:correction_request` | HR_HEAD | request a correction of a published quarter |
 | `quarter:correction_approve` | CHRO | approve or reject a correction |
 
+Compensation and budget finalization (Stage N) add:
+
+| Capability | Roles | Allows |
+|---|---|---|
+| `compensation:read` | ADMIN, CHRO, HR_HEAD | salary baselines, employee-level proposals with their explanation, one-employee previews (GLOBAL) |
+| `compensation:manage` | HR_HEAD | create and edit compensation cycles, import salary baselines, calculate and submit budget scenarios (GLOBAL) |
+| `budget:read` | ADMIN, CHRO, HR_HEAD, BUDGET_USER | compensation cycles, budget decisions, scenario totals and variance (company totals need GLOBAL; scoped readers see their units) |
+| `budget:record` | BUDGET_USER | record the company-approved budget amount with a reason (GLOBAL) |
+| `budget:approve` | CHRO | approve or reject a submitted scenario as the final budget (GLOBAL) |
+
 Score overrides use the deviation capabilities: `kpi:write` requests,
 `deviation:approve_hr` and `deviation:approve_plant` approve (two different
 people, neither the requester).
@@ -178,7 +188,10 @@ may be the requester. Nobody marks their own KPI result as reviewed, places
 themselves in a normalization cohort, or approves a cohort they belong to or
 placed anyone in (Stage L). Nobody decides their own annual deviation or
 quarter correction request, approves their own annual result, or decides a
-correction of their own result (Stage M). "Available budget for the department" on a JD is
+correction of their own result (Stage M). The CHRO never decides a budget
+scenario they prepared or submitted, nor approves one against a budget amount
+they recorded themselves (Stage N; a database CHECK also keeps the decider
+apart from the preparer and submitter). "Available budget for the department" on a JD is
 filled by HR roles (HR, HR_HEAD, CHRO, ADMIN) only. Company-wide KPIs and
 scoring policies need GLOBAL `kpi:write`.
 
@@ -447,6 +460,35 @@ unpublished or in-correction quarter is never treated as zero.
 | GET | `/api/annual/deviations[/{id}]` | `annual:read` | `status`, `cycle_id` |
 | POST | `/api/annual/deviations/{id}/approve`, `…/reject` | `annual:approve` | `{"reason"}` (≥ 10 chars); not the requester (403); approval sets the adjusted score, the calculated score is kept |
 | GET | `/api/annual/my` | `self:read` | the caller's approved annual results, with a `notice` while a source quarter is being corrected |
+
+### Compensation and budget (Stage N)
+
+Salaries are visible only with `compensation:read`; budget owners see totals
+only, and a plant/department row with fewer than 3 included employees hides
+its amounts from them. Matrices are the Stage K types (KRA performance,
+compa-ratio impact, increment) authored, approved and published through the
+matrix endpoints above; only published versions in force on the cycle's
+effective date produce a scenario that can be submitted. Rules and rounding:
+[database-design.md](database-design.md#compensation-compa-ratio-and-budget-finalization-stage-n).
+Amounts and percentages are decimal strings.
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| GET | `/api/compensation/cycles` | `budget:read` | cycles with status, PMS cycle, currency, effective date, CR method |
+| POST | `/api/compensation/cycles` | GLOBAL `compensation:manage` | `{"code", "name", "pms_cycle_id", "currency" (3 letters), "effective_date", "cr_method": "MATRIX_INPUT" \| "IMPACT_MULTIPLIER", "reference_label", "notes"?}` → 201 with the cycle detail; code unique (409) |
+| GET | `/api/compensation/cycles/{id}` | `budget:read` | the cycle plus `policy` (per required matrix type: APPROVED with the versions in force, or AWAITING_CONFIGURATION), `baselines`, budget `decisions`, `scenarios` (each with its `variance`), allowed `actions` and audit `history` |
+| PUT | `/api/compensation/cycles/{id}` | GLOBAL `compensation:manage` | same body; OPEN cycles only and not while a scenario awaits the CHRO (409); the code can't change |
+| GET | `/api/compensation/cycles/{id}/baseline/template` | GLOBAL `compensation:manage` | Excel template listing the employees with an approved annual result in the PMS cycle; no salaries |
+| POST | `/api/compensation/cycles/{id}/baseline/preview` | GLOBAL `compensation:manage` | multipart `file` (.csv or .xlsx, ≤ 2 MB): 200 with `issues`, `warnings`, the rows and `ready`; saves nothing |
+| POST | `/api/compensation/cycles/{id}/baseline/confirm` | GLOBAL `compensation:manage` | the same file, validated again: 201 with the new baseline version, or 422 and nothing stored |
+| GET | `/api/compensation/cycles/{id}/baselines/{bid}` | GLOBAL `compensation:read` | the baseline's rows (salaries) |
+| POST | `/api/compensation/cycles/{id}/budget-decisions` | GLOBAL `budget:record` | `{"amount" (≥ 0, ≤ 2 decimals), "reason" (≥ 10 chars)}` → 201 with the cycle detail; the previous decision becomes SUPERSEDED with its amount kept; 409 once FINALIZED |
+| POST | `/api/compensation/cycles/{id}/scenarios` | GLOBAL `compensation:manage` | `{"name", "baseline_id"? (default: latest), "overrides"? ({matrix type: version id}, makes it analysis only), "note"?}` → 201 with the frozen scenario |
+| POST | `/api/compensation/cycles/{id}/preview` | GLOBAL `compensation:read` | `{"employee_id", "baseline_id"?, "overrides"?}`: one employee's proposal or exclusion as it would be calculated now; saves nothing |
+| GET | `/api/compensation/scenarios/{id}` | `budget:read` | totals, by-unit breakdown, reconciliation, `variance`, matrix versions used, `stale_reasons`, `lines` (null without `compensation:read`), allowed `actions`, `history` |
+| POST | `/api/compensation/scenarios/{id}/submit` | GLOBAL `compensation:manage` | CALCULATED, not analysis only, at least one included employee, not out of date (422 lists why); one submitted scenario per cycle (409) |
+| POST | `/api/compensation/scenarios/{id}/approve` | GLOBAL `budget:approve` | `{"reason"}` (≥ 10 chars); SUBMITTED, a recorded budget (409), not the preparer, submitter or the budget's recorder (403), not out of date (422); finalizes the scenario and the cycle, supersedes the other open scenarios |
+| POST | `/api/compensation/scenarios/{id}/reject` | GLOBAL `budget:approve` | `{"reason"}` (≥ 10 chars); not the preparer or submitter (403) |
 
 ## Local demo accounts
 

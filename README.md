@@ -59,7 +59,22 @@ result; and **controlled corrections of published quarters**: an HR Head
 requests, the CHRO decides, and the correction becomes a new version of the
 quarter's results that is reviewed, renormalized and published again, while
 every earlier version, its audit history and the annual results built on it
-stay available. Budgets and increments come in later stages.
+stay available.
+
+Stage N adds **compensation and budget finalization**: per-cycle compensation
+settings (which PMS cycle's annual results, effective date, and whether the
+compa-ratio is an input of the increment matrix or applies through an impact
+multiplier); a restricted salary baseline imported from CSV or Excel (never
+seeded, amounts never written to the audit trail); increment proposals from
+the approved annual score through the approved KRA performance and increment
+matrices, with compa-ratio, increment %, amount and new salary kept separate,
+explicit rounding and a step-by-step explanation; budget scenarios with
+totals by plant and department, reconciliation, exclusions with reasons and
+revisions as new frozen scenarios; the company-approved budget recorded by
+the budget owner, variance and overspend shown but increments never adjusted
+to fit; and the CHRO's final approval with separation of duties. Actual
+compensation policy values (KRA bands, increment percentages, compa-ratio
+effects) await approval and are not part of the code or seed data.
 
 ## Getting Started
 

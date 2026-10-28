@@ -1,4 +1,4 @@
-import { expect, request, type Page } from '@playwright/test'
+import { expect, request, type APIRequestContext, type Page } from '@playwright/test'
 
 /** The isolated e2e API (see playwright.config.ts), never the development one. */
 export const API_ORIGIN = process.env.PMS_E2E_API_ORIGIN ?? 'http://localhost:8001'
@@ -86,4 +86,120 @@ export function collectConsoleErrors(page: Page): string[] {
         })
         page.on('pageerror', (error) => errors.push(error.message))
         return errors
+}
+
+/** An API client signed in (bearer token) as one of the synthetic accounts. */
+export async function apiAs(username: string): Promise<APIRequestContext> {
+        const anonymous = await request.newContext({ baseURL: API_ORIGIN })
+        const login = await anonymous.post('/api/auth/token', {
+                form: { username, password: e2ePassword() },
+        })
+        expect(login.ok()).toBe(true)
+        const { access_token } = (await login.json()) as { access_token: string }
+        await anonymous.dispose()
+        return request.newContext({
+                baseURL: API_ORIGIN,
+                extraHTTPHeaders: { Authorization: `Bearer ${access_token}` },
+        })
+}
+
+export async function ok<T = unknown>(
+        response: Awaited<ReturnType<APIRequestContext['get']>>,
+): Promise<T> {
+        expect(response.ok(), await response.text()).toBe(true)
+        return (await response.json()) as T
+}
+
+/** A four-quarter cycle seeded for this run with DEMO0005's locked sheets (e2e_server.py). */
+export interface RunCycle {
+        cycleId: number
+        cycleName: string
+        quarters: { id: number; name: string }[]
+        sheets: number[] // DEMO0005's sheet in each quarter
+        employeeId: number
+}
+
+/** The newest seeded cycle whose code starts with `prefix` (e.g. "E2E-A"). */
+export async function findRunCycle(api: APIRequestContext, prefix: string): Promise<RunCycle> {
+        const cycles = await ok<
+                {
+                        id: number
+                        code: string
+                        name: string
+                        quarters: { id: number; name: string; quarter_number: number }[]
+                }[]
+        >(await api.get('/api/annual/cycles'))
+        const cycle = cycles.filter((c) => c.code.startsWith(prefix)).sort((a, b) => b.id - a.id)[0]
+        expect(cycle).toBeTruthy()
+        const quarters = [...cycle.quarters].sort((a, b) => a.quarter_number - b.quarter_number)
+        const sheets: number[] = []
+        let employeeId = 0
+        for (const q of quarters) {
+                const list = await ok<{
+                        rows: {
+                                assignment: { employee: { id: number; employee_code: string } }
+                                sheet: { id: number } | null
+                        }[]
+                }>(await api.get('/api/kpi/sheets', { params: { quarter_id: q.id } }))
+                const row = list.rows.find(
+                        (r) => r.sheet && r.assignment.employee.employee_code === 'DEMO0005',
+                )!
+                sheets.push(row.sheet!.id)
+                employeeId = row.assignment.employee.id
+        }
+        return {
+                cycleId: cycle.id,
+                cycleName: cycle.name,
+                quarters: quarters.map((q) => ({ id: q.id, name: q.name })),
+                sheets,
+                employeeId,
+        }
+}
+
+/**
+ * Takes one run quarter from data collection to publication through the API,
+ * with DEMO0005's synthetic monthly values (the quarterly workflow itself is
+ * covered in the browser by quarterly.spec.ts).
+ */
+export async function publishDemoQuarter(
+        api: APIRequestContext,
+        quarterId: number,
+        sheetId: number,
+        [month, dispatch, productivity]: [string, string, string],
+): Promise<void> {
+        const csv = [
+                'Employee Code,Plant Code,Department Code,KPI,Period,Actual',
+                `DEMO0005,PLT-A,PROD,KPI-D02,${month},${dispatch}`,
+                `DEMO0005,PLT-A,PROD,KPI-D06,${month},${productivity}`,
+        ].join('\n')
+        await ok(
+                await api.post('/api/kpi/data/confirm', {
+                        multipart: {
+                                quarter_id: String(quarterId),
+                                period: month,
+                                file: {
+                                        name: `e2e-${month}.csv`,
+                                        mimeType: 'text/csv',
+                                        buffer: Buffer.from(csv),
+                                },
+                        },
+                }),
+        )
+        await ok(await api.post('/api/kpi/results/calculate', { data: { quarter_id: quarterId } }))
+        const step = (to: string) =>
+                api.post(`/api/kpi/quarters/${quarterId}/transition`, {
+                        data: { to, reason: null },
+                })
+        await ok(await step('DEPARTMENT_REVIEW'))
+        await ok(await api.post(`/api/kpi/results/${sheetId}/review`))
+        await ok(await step('NORMALIZATION'))
+        const cohorts = await ok<{ id: number }[]>(
+                await api.get(`/api/kpi/quarters/${quarterId}/normalization`),
+        )
+        for (const c of cohorts)
+                await ok(
+                        await api.post(`/api/kpi/normalization-runs/${c.id}/approve`, { data: {} }),
+                )
+        await ok(await step('READY'))
+        await ok(await api.post(`/api/kpi/quarters/${quarterId}/publish`))
 }

@@ -258,7 +258,8 @@ KRA_PERFORMANCE = MatrixTypeSpec(
     code_prefix="KRM",
     standard_inputs=(
         FieldSpec("weighted_score", "Weighted KPI score", DataType.DECIMAL, "input", min="0",
-                  max="5", description="Weighted score of a KPI sheet (0–5).",
+                  max="5", description="Weighted score (0–5); for compensation, the employee's "
+                                       "approved annual final score.",
                   source=Source.MANUAL),
     ),
     outputs=(
@@ -281,14 +282,17 @@ KRA_PERFORMANCE = MatrixTypeSpec(
 CR_IMPACT = MatrixTypeSpec(
     code="CR_IMPACT",
     name="Compa-ratio impact matrix",
-    description="Describes how an employee's compa-ratio position (salary ÷ range "
-                "midpoint) and rating affect compensation. Outputs are defined by HR.",
+    description="Describes how an employee's compa-ratio position (salary ÷ the cycle's "
+                "reference salary) and rating affect compensation. Outputs are defined by HR; "
+                "a compensation cycle using the impact-multiplier method reads the output "
+                "'increment_multiplier', applied to the base increment.",
     schema_version=1,
     code_prefix="CRM",
     standard_inputs=(
         FieldSpec("compa_ratio", "Compa-ratio", DataType.DECIMAL, "input", min="0",
-                  description="Salary ÷ salary-range midpoint; supplied by the compensation "
-                              "module (a later stage).", source=Source.MANUAL),
+                  description="Current salary ÷ the compensation cycle's reference salary "
+                              "(e.g. the salary-range midpoint), from its salary baseline; "
+                              "1.0000 = at the reference.", source=Source.MANUAL),
         FieldSpec("performance_rating", "Performance rating", DataType.INTEGER, "input",
                   min="1", max="5", description="Rating on the ordinary 1–5 scale.",
                   source=Source.MANUAL),
@@ -319,8 +323,9 @@ INCREMENT = MatrixTypeSpec(
                   min="1", max="5", description="Rating on the ordinary 1–5 scale.",
                   source=Source.MANUAL),
         FieldSpec("compa_ratio", "Compa-ratio", DataType.DECIMAL, "input", min="0",
-                  description="Salary ÷ salary-range midpoint; supplied by the compensation "
-                              "module (a later stage).", source=Source.MANUAL),
+                  description="Current salary ÷ the compensation cycle's reference salary "
+                              "(e.g. the salary-range midpoint), from its salary baseline; "
+                              "1.0000 = at the reference.", source=Source.MANUAL),
     ),
     outputs=(
         FieldSpec("increment_percent", "Increment %", DataType.PERCENT, "output", unit="%",

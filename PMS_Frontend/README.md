@@ -98,6 +98,20 @@ new reviewed version, recalculates and re-approves the annual result, and
 checks that both versions stay visible and that the employee sees only the
 approved outcome. Values are designed so every score is known in advance.
 
+`e2e/compensation.spec.ts` (Stage N) gets its own cycle of the same shape
+(`E2E-C<timestamp>`, quarters `E2E C1`–`E2E C4`). It publishes the year and
+approves the annual result through the API, authors **synthetic** KRA
+performance and increment matrices in force for a single day unique to the
+run (so runs never overlap; these are test values, not company policy) and
+has the CHRO approve one in the browser. In the browser it then creates the
+compensation cycle, imports a synthetic salary baseline that exists only in
+the spec file, calculates and submits a scenario, checks the per-employee
+explanation, has the budget owner record an approved budget (seeing totals but
+no employee amounts) and the CHRO approve the final budget, and checks that an
+employee is denied. No salary is seeded or written to test artifacts.
+API helpers shared by the specs (`apiAs`, `ok`, `findRunCycle`,
+`publishDemoQuarter`) live in `e2e/helpers.ts`.
+
 ## How it works
 
 ```
@@ -185,6 +199,19 @@ The quarterly pages (`features/quarterly`) show only what the API returns:
 counts, blockers, distributions and allowed actions all come from the
 overview, employee and cohort responses, so a button appears only when the
 backend would accept the action, and the backend still checks it.
+
+### Compensation and budget
+
+The compensation pages (`features/compensation`) are reachable only with
+`budget:read`; the navigation hides them otherwise, and the API enforces every
+rule again. What each person sees comes from the API: a budget owner's
+scenario response has no employee lines, and small plant/department groups
+arrive with their amounts already removed. Amounts and percentages are shown
+from the API's decimal strings (`compensationLabels.ts` groups digits as
+text, never through floating point), and each proposal's explanation is the
+trace stored with the scenario, so it shows exactly what was calculated.
+Buttons (submit, approve, record the budget) appear only when the response's
+`actions` allow them.
 
 ### Data and figures
 

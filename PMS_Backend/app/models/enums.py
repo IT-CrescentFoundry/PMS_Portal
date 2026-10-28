@@ -216,6 +216,38 @@ class AnnualResultStatus(StrEnum):
     DISCARDED = "DISCARDED"    # a calculation replaced by a newer one before approval
 
 
+class CompaRatioMethod(StrEnum):
+    """How compa-ratio affects the increment in a compensation cycle (Stage N).
+    Configuration, chosen per cycle; neither is company policy until the
+    matrices it uses are approved."""
+
+    MATRIX_INPUT = "MATRIX_INPUT"            # the increment matrix takes compa-ratio as an input
+    IMPACT_MULTIPLIER = "IMPACT_MULTIPLIER"  # base increment x a CR-impact matrix multiplier
+
+
+class CompensationCycleStatus(StrEnum):
+    OPEN = "OPEN"            # baselines, scenarios and budget decisions may be added
+    FINALIZED = "FINALIZED"  # the CHRO approved a scenario against the approved budget
+
+
+class BudgetScenarioStatus(StrEnum):
+    CALCULATED = "CALCULATED"  # prepared by an HR Head; frozen lines
+    SUBMITTED = "SUBMITTED"    # submitted for the CHRO's decision
+    FINALIZED = "FINALIZED"    # approved by the CHRO against the approved budget
+    REJECTED = "REJECTED"      # rejected by the CHRO, with a reason
+    SUPERSEDED = "SUPERSEDED"  # another scenario of the cycle was finalized
+
+
+class BudgetLineStatus(StrEnum):
+    INCLUDED = "INCLUDED"
+    EXCLUDED = "EXCLUDED"  # with a recorded reason; never silently dropped
+
+
+class BudgetDecisionStatus(StrEnum):
+    CURRENT = "CURRENT"
+    SUPERSEDED = "SUPERSEDED"  # replaced by a later recorded amount
+
+
 class AnnualDeviationStatus(StrEnum):
     PENDING = "PENDING"    # requested by an Admin; awaits the CHRO
     APPROVED = "APPROVED"  # the adjusted score applies to that annual result version

@@ -5,7 +5,17 @@ import { LoginPage } from '../features/auth/LoginPage'
 import { AnnualDeviationsPage } from '../features/annual/AnnualDeviationsPage'
 import { AnnualEmployeePage } from '../features/annual/AnnualEmployeePage'
 import { AnnualPage } from '../features/annual/AnnualPage'
-import { RequireAnnualAccess, RequireAuth, RequireOrgAccess } from '../features/auth/RequireAuth'
+import {
+        RequireAnnualAccess,
+        RequireAuth,
+        RequireBudgetAccess,
+        RequireOrgAccess,
+} from '../features/auth/RequireAuth'
+import { BaselineUploadPage } from '../features/compensation/BaselineUploadPage'
+import { CompensationCyclePage } from '../features/compensation/CompensationCyclePage'
+import { CompensationCyclesPage } from '../features/compensation/CompensationCyclesPage'
+import { ProposalPreviewPage } from '../features/compensation/ProposalPreviewPage'
+import { ScenarioPage } from '../features/compensation/ScenarioPage'
 import { NotFoundPage } from '../features/common/NotFoundPage'
 import { CorrectionPage } from '../features/corrections/CorrectionPage'
 import { CorrectionRequestPage } from '../features/corrections/CorrectionRequestPage'
@@ -177,6 +187,28 @@ export function AppRoutes() {
                                         <Route
                                                 path="annual/cycles/:cycleId/employees/:employeeId"
                                                 element={<AnnualEmployeePage />}
+                                        />
+                                </Route>
+                                <Route element={<RequireBudgetAccess />}>
+                                        <Route
+                                                path="compensation"
+                                                element={<CompensationCyclesPage />}
+                                        />
+                                        <Route
+                                                path="compensation/cycles/:cycleId"
+                                                element={<CompensationCyclePage />}
+                                        />
+                                        <Route
+                                                path="compensation/cycles/:cycleId/baseline"
+                                                element={<BaselineUploadPage />}
+                                        />
+                                        <Route
+                                                path="compensation/cycles/:cycleId/preview"
+                                                element={<ProposalPreviewPage />}
+                                        />
+                                        <Route
+                                                path="compensation/scenarios/:scenarioId"
+                                                element={<ScenarioPage />}
                                         />
                                 </Route>
                                 {/* Also reachable by employees for their own record (the API decides). */}
