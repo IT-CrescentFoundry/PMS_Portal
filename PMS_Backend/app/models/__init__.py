@@ -4,6 +4,12 @@ Every model module must be imported here so that Base.metadata is complete
 when Alembic (migrations/env.py) autogenerates migrations.
 """
 from app.models.access import Role, User, UserRole, UserRoleScope
+from app.models.allocation import (
+    AllocationProposal,
+    AllocationProposalLine,
+    BudgetDistribution,
+    BudgetDistributionLine,
+)
 from app.models.annual import AnnualResult, AnnualScoreDeviation
 from app.models.audit import AuditEvent
 from app.models.compensation import (
@@ -18,6 +24,7 @@ from app.models.correction import QuarterCorrection, QuarterCorrectionItem
 from app.models.cycle import PmsCycle, PmsCycleQuarter
 from app.models.employee import Employee, EmployeeAssignment
 from app.models.enums import (
+    AllocationStatus,
     AnnualDeviationStatus,
     AnnualResultStatus,
     AuditActorType,
@@ -31,6 +38,10 @@ from app.models.enums import (
     CorrectionStatus,
     CycleStatus,
     DeviationStatus,
+    DiscretionMode,
+    DistributionLevel,
+    DistributionMethod,
+    DistributionStatus,
     EmployeeResultStatus,
     JDVersionStatus,
     KpiAggregation,
@@ -69,6 +80,9 @@ from app.models.quarterly import (
 )
 
 __all__ = [
+    "AllocationProposal",
+    "AllocationProposalLine",
+    "AllocationStatus",
     "AnnualDeviationStatus",
     "AnnualResult",
     "AnnualResultStatus",
@@ -78,6 +92,8 @@ __all__ = [
     "AuditEvent",
     "BudgetDecision",
     "BudgetDecisionStatus",
+    "BudgetDistribution",
+    "BudgetDistributionLine",
     "BudgetLineStatus",
     "BudgetScenario",
     "BudgetScenarioLine",
@@ -94,6 +110,10 @@ __all__ = [
     "Department",
     "Designation",
     "DeviationStatus",
+    "DiscretionMode",
+    "DistributionLevel",
+    "DistributionMethod",
+    "DistributionStatus",
     "Employee",
     "EmployeeAssignment",
     "EmployeeQuarterResult",

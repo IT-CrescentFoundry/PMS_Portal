@@ -1631,6 +1631,11 @@ export interface CompensationCycle {
         notes: string | null
         finalized_at: string | null
         finalized_by: UserRef | null
+        /** Stage O: explicit budget revisions (the latest reopening). */
+        revision_no: number
+        reopened_at: string | null
+        reopened_by: UserRef | null
+        reopen_reason: string | null
 }
 
 export interface CompensationMatrixRef {
@@ -1710,6 +1715,7 @@ export interface CompensationCycleDetail extends CompensationCycle {
                 can_record_budget: boolean
                 can_approve: boolean
                 can_read_employees: boolean
+                can_reopen: boolean
         }
         history: AuditEntry[]
 }
@@ -1836,4 +1842,256 @@ export interface BudgetScenario extends BudgetScenarioSummary {
         lines: BudgetLine[] | null
         actions: { can_submit: boolean; can_approve: boolean; can_reject: boolean }
         history: AuditEntry[]
+}
+
+// --- Stage O: budget distribution and allocation approval ---------------------------------
+
+export type DistributionStatus = 'DRAFT' | 'PUBLISHED' | 'SUPERSEDED'
+export type DistributionMethod = 'PERCENT' | 'AMOUNT'
+export type AllocationStatus =
+        | 'DRAFT'
+        | 'ADMIN_REVIEW'
+        | 'CHRO_REVIEW'
+        | 'APPROVED'
+        | 'REJECTED'
+        | 'RETURNED'
+        | 'SUPERSEDED'
+export type DiscretionMode = 'RECOMMENDATION_ONLY' | 'WITH_REASON' | 'WITHIN_LIMITS'
+
+export interface AllocationCycle {
+        id: number
+        code: string
+        name: string
+        status: CompensationCycleStatus
+        currency: string
+        effective_date: string
+        revision_no: number
+        budget_finalized: boolean
+        distribution_version: number | null
+}
+
+export interface DiscretionPolicy {
+        mode: DiscretionMode
+        max_increase_points: string | null
+        max_decrease_points: string | null
+        version: number
+        configured: boolean
+}
+
+export interface DistributionTotals {
+        budget: string | null
+        plants_total: string | null
+        units_total: string | null
+        unallocated: string | null
+        plants_unallocated: string | null
+        rounding_residual: string | null
+}
+
+export interface DistributionSummary {
+        id: number
+        version_no: number
+        status: DistributionStatus
+        budget_amount: string
+        totals: DistributionTotals
+        revision_reason: string | null
+        created_by: UserRef | null
+        created_at: string
+        published_by: UserRef | null
+        published_at: string | null
+}
+
+export interface DistributionUnit {
+        id: number
+        department: DepartmentRef
+        method: DistributionMethod
+        percent: string | null
+        amount: string
+        amount_exact: string
+}
+
+export interface DistributionPlant {
+        id: number
+        plant: PlantRef
+        method: DistributionMethod
+        percent: string | null
+        amount: string
+        amount_exact: string
+        units_total: string
+        unallocated: string
+        rounding_residual: string
+        units: DistributionUnit[]
+}
+
+export interface Distribution extends DistributionSummary {
+        cycle: AllocationCycle
+        allow_mixed_methods: boolean
+        note: string | null
+        scenario_id: number
+        budget_decision_id: number
+        plants: DistributionPlant[]
+        stale_reasons: string[]
+        versions: DistributionSummary[]
+        actions: { can_edit: boolean; can_publish: boolean; can_start_revision: boolean }
+        history: AuditEntry[]
+}
+
+export interface DistributionWrite {
+        allow_mixed_methods: boolean
+        note: string | null
+        plants: {
+                plant_id: number
+                method: DistributionMethod
+                value: string
+                units: { department_id: number; method: DistributionMethod; value: string }[]
+        }[]
+}
+
+export interface ProposalBrief {
+        id: number
+        version_no: number
+        status: AllocationStatus
+        proposed_total: string | null
+        changed_count: number
+        stale_reasons: string[]
+        submitted_at: string | null
+        decided_at: string | null
+}
+
+export interface ExcludedEmployee {
+        employee: EmployeeRef
+        plant: PlantRef | null
+        department: DepartmentRef | null
+        code: string | null
+        reason: string | null
+}
+
+export interface AllocationUnit {
+        plant: PlantRef
+        department: DepartmentRef
+        distributed: string | null
+        included: number
+        excluded: number
+        excluded_by_reason: Record<string, number>
+        recommended: string | null
+        proposed: string | null
+        approved: string | null
+        difference: string | null
+        /** Amounts hidden: fewer than 3 included employees for a budget-only reader. */
+        suppressed: boolean
+        latest: ProposalBrief | null
+        approved_proposal: ProposalBrief | null
+        can_start: boolean
+}
+
+export interface AllocationSummary {
+        budget: string | null
+        distributed_to_plants: string | null
+        distributed_to_units: string | null
+        unallocated_company: string | null
+        unallocated_plants: string | null
+        rounding_residual: string | null
+        recommended_total: string | null
+        proposed_total: string | null
+        approved_total: string | null
+        by_status: Record<string, number>
+        stale: number
+        excluded_by_reason: Record<string, number>
+        reconciliation: Record<string, string | boolean | null>
+}
+
+export interface AllocationOverview {
+        cycle: AllocationCycle
+        policy: DiscretionPolicy
+        distribution: DistributionSummary | null
+        /** Company figures; null for readers limited to some units. */
+        summary: AllocationSummary | null
+        units: AllocationUnit[]
+        excluded: ExcludedEmployee[]
+        actions: {
+                can_distribute: boolean
+                can_set_policy: boolean
+                can_read_employees: boolean
+                /** The open draft distribution, for the budget owner. */
+                draft_distribution_id: number | null
+        }
+}
+
+export interface ProposalLine {
+        employee: EmployeeRef
+        own: boolean
+        annual_result_id: number | null
+        current_salary: string
+        recommended_percent: string
+        recommended_amount: string
+        proposed_percent: string
+        proposed_amount: string
+        new_salary: string
+        difference: string
+        reason: string | null
+}
+
+export interface AllocationProposal {
+        id: number
+        cycle: AllocationCycle
+        plant: PlantRef
+        department: DepartmentRef
+        version_no: number
+        status: AllocationStatus
+        scenario_id: number
+        budget_decision_id: number
+        distribution_id: number
+        distribution_version: number | null
+        unit_budget: string
+        current_unit_budget: string | null
+        included_count: number
+        changed_count: number
+        recommended_total: string | null
+        proposed_total: string | null
+        remaining_budget: string | null
+        suppressed: boolean
+        policy: DiscretionPolicy
+        note: string | null
+        prepared_by: UserRef | null
+        created_at: string
+        submitted_by: UserRef | null
+        submitted_at: string | null
+        admin_reviewed_by: UserRef | null
+        admin_reviewed_at: string | null
+        admin_note: string | null
+        decided_by: UserRef | null
+        decided_at: string | null
+        decision_reason: string | null
+        stale_reasons: string[]
+        /** Null for readers without employee-level access to the unit. */
+        lines: ProposalLine[] | null
+        excluded: ExcludedEmployee[] | null
+        versions: ProposalBrief[]
+        actions: {
+                can_edit: boolean
+                can_refresh: boolean
+                can_submit: boolean
+                can_forward: boolean
+                can_return: boolean
+                can_approve: boolean
+                can_reject: boolean
+                can_start_next: boolean
+        }
+        history: AuditEntry[]
+}
+
+export interface AllocationReportLine {
+        plant: PlantRef
+        department: DepartmentRef
+        proposal_id: number
+        version_no: number
+        status: AllocationStatus
+        stale: boolean
+        employee: EmployeeRef
+        current_salary: string
+        recommended_percent: string
+        recommended_amount: string
+        proposed_percent: string
+        proposed_amount: string
+        difference: string
+        reason: string | null
 }

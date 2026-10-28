@@ -4,7 +4,12 @@ import { LockKeyhole } from 'lucide-react'
 import { PageHeader } from '../../components/common/PageHeader'
 import { useAuth, useCurrentUser } from './AuthContext'
 import { CheckingSession, ServiceUnavailable } from './FullPageStatus'
-import { canReadAnnual, canReadBudget, canReadOrganization } from './permissions'
+import {
+        canReadAllocations,
+        canReadAnnual,
+        canReadBudget,
+        canReadOrganization,
+} from './permissions'
 
 export interface LoginRedirectState {
         from?: string
@@ -54,6 +59,13 @@ export function RequireAnnualAccess() {
 export function RequireBudgetAccess() {
         const user = useCurrentUser()
         if (canReadBudget(user)) return <Outlet />
+        return <AccessDenied />
+}
+
+/** Budget distribution and increment allocations (the API limits each reader further). */
+export function RequireAllocationAccess() {
+        const user = useCurrentUser()
+        if (canReadAllocations(user)) return <Outlet />
         return <AccessDenied />
 }
 

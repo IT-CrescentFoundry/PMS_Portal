@@ -13,6 +13,7 @@ import {
 } from '../../components/common/Fields'
 import { PageHeader } from '../../components/common/PageHeader'
 import { ErrorState, LoadingState } from '../../components/common/QueryStates'
+import { ReasonForm } from '../../components/common/ReasonForm'
 import { buttonClasses, cardClasses, linkClasses } from '../../components/common/styles'
 import { Table, TBody, Td, Th } from '../../components/tables/Table'
 import { useAction } from '../../hooks/useAction'
@@ -23,6 +24,7 @@ import {
         recordBudgetDecision,
         updateCompensationCycle,
 } from '../../services/compensationApi'
+import { reopenBudget } from '../../services/allocationApi'
 import type { CompensationCycleDetail } from '../../types/api'
 import { formatDate } from '../../utils/format'
 import { parseId } from '../../utils/params'
@@ -94,6 +96,30 @@ function CycleView({ initial }: { initial: CompensationCycleDetail }) {
                         />
                         <div className="space-y-4">
                                 {message && <Alert title={message} />}
+                                {open && cycle.revision_no > 0 && (
+                                        <Alert
+                                                tone="warning"
+                                                title={`Budget revision ${cycle.revision_no} in progress`}
+                                        >
+                                                Reopened by {cycle.reopened_by?.username ?? '—'} on{' '}
+                                                {formatDate(cycle.reopened_at)}:{' '}
+                                                {cycle.reopen_reason}. The earlier approved budget
+                                                stays in force for history until a revised scenario
+                                                is approved; distribution and allocation resume
+                                                then.
+                                        </Alert>
+                                )}
+                                {!open && (
+                                        <BudgetApproved
+                                                cycle={cycle}
+                                                onReopened={(saved) => {
+                                                        setCycle(saved)
+                                                        setMessage(
+                                                                'The budget is open for revision.',
+                                                        )
+                                                }}
+                                        />
+                                )}
                                 {editing ? (
                                         <CycleForm
                                                 initial={cycle}
@@ -540,6 +566,71 @@ function CycleView({ initial }: { initial: CompensationCycleDetail }) {
                                 <History entries={cycle.history} />
                         </div>
                 </>
+        )
+}
+
+function BudgetApproved({
+        cycle,
+        onReopened,
+}: {
+        cycle: CompensationCycleDetail
+        onReopened: (cycle: CompensationCycleDetail) => void
+}) {
+        const [reopening, setReopening] = useState(false)
+        const action = useAction()
+        return (
+                <section
+                        aria-labelledby="approved-heading"
+                        className={`${cardClasses} space-y-2 p-4`}
+                >
+                        <h2
+                                id="approved-heading"
+                                className="text-base font-semibold text-slate-900"
+                        >
+                                Company budget approved
+                        </h2>
+                        <p className="text-sm text-slate-700">
+                                The budget owner distributes it to plants and departments, and
+                                departments propose their employees' increments for Admin review and
+                                the CHRO's approval.
+                        </p>
+                        <Link
+                                to={`/allocations/cycles/${cycle.id}`}
+                                className={buttonClasses('primary', 'sm')}
+                        >
+                                Open the allocations
+                        </Link>
+                        <ActionError error={action.error} title="The budget was not reopened" />
+                        {cycle.actions.can_reopen &&
+                                (reopening ? (
+                                        <ReasonForm
+                                                label="Why does the approved budget need a revision?"
+                                                hint="At least 10 characters. The approved budget is kept as history; distributions and proposals made against it become out of date."
+                                                minLength={10}
+                                                submitLabel="Reopen the budget for revision"
+                                                busy={action.busy}
+                                                onSubmit={async (reason) => {
+                                                        const saved = await action.run(() =>
+                                                                reopenBudget(cycle.id, reason),
+                                                        )
+                                                        if (saved) {
+                                                                setReopening(false)
+                                                                onReopened(saved)
+                                                        }
+                                                }}
+                                                onCancel={() => setReopening(false)}
+                                        />
+                                ) : (
+                                        <div>
+                                                <Button
+                                                        size="sm"
+                                                        onClick={() => setReopening(true)}
+                                                >
+                                                        Reopen for revision…
+                                                </Button>
+                                        </div>
+                                ))}
+                </section>
         )
 }
 

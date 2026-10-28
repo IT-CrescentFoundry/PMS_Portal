@@ -253,3 +253,39 @@ class AnnualDeviationStatus(StrEnum):
     APPROVED = "APPROVED"  # the adjusted score applies to that annual result version
     REJECTED = "REJECTED"
     VOIDED = "VOIDED"      # the annual result was recalculated before a decision
+
+
+# --- Stage O: budget distribution and employee allocation ------------------------------------
+
+class DistributionStatus(StrEnum):
+    DRAFT = "DRAFT"            # the budget owner's working version (one per cycle)
+    PUBLISHED = "PUBLISHED"    # in force; departments propose against it (one per cycle)
+    SUPERSEDED = "SUPERSEDED"  # replaced by a later published version
+
+
+class DistributionLevel(StrEnum):
+    PLANT = "PLANT"  # a share of the company budget
+    UNIT = "UNIT"    # a share of its plant's amount, for one plant-department
+
+
+class DistributionMethod(StrEnum):
+    PERCENT = "PERCENT"  # of the parent amount, rounded down to the cent
+    AMOUNT = "AMOUNT"    # a fixed amount
+
+
+class AllocationStatus(StrEnum):
+    DRAFT = "DRAFT"                # prepared by the department
+    ADMIN_REVIEW = "ADMIN_REVIEW"  # submitted; awaits an Admin
+    CHRO_REVIEW = "CHRO_REVIEW"    # forwarded by an Admin; awaits the CHRO
+    APPROVED = "APPROVED"          # final for the unit
+    REJECTED = "REJECTED"          # closed by the CHRO; the department may start a new version
+    RETURNED = "RETURNED"          # sent back for revision; the department starts a new version
+    SUPERSEDED = "SUPERSEDED"      # an approved version replaced by a later approved one
+
+
+class DiscretionMode(StrEnum):
+    """How far a department may depart from the matrix recommendation."""
+
+    RECOMMENDATION_ONLY = "RECOMMENDATION_ONLY"
+    WITH_REASON = "WITH_REASON"
+    WITHIN_LIMITS = "WITHIN_LIMITS"  # within + / - percentage points of the recommendation

@@ -67,6 +67,10 @@ export const compCycle: CompensationCycleDetail = {
         notes: null,
         finalized_at: null,
         finalized_by: null,
+        revision_no: 0,
+        reopened_at: null,
+        reopened_by: null,
+        reopen_reason: null,
         policy: [
                 {
                         type: 'KRA_PERFORMANCE',
@@ -107,6 +111,7 @@ export const compCycle: CompensationCycleDetail = {
                 can_record_budget: false,
                 can_approve: false,
                 can_read_employees: true,
+                can_reopen: false,
         },
         history: [],
 }

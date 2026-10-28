@@ -71,6 +71,11 @@ class CycleSummary(BaseModel):
     notes: str | None
     finalized_at: datetime | None
     finalized_by: UserRef | None
+    # Stage O: explicit budget revisions (the latest reopening).
+    revision_no: int = 0
+    reopened_at: datetime | None = None
+    reopened_by: UserRef | None = None
+    reopen_reason: str | None = None
 
 
 class BaselineSummary(BaseModel):
@@ -137,6 +142,7 @@ class CycleActions(BaseModel):
     can_record_budget: bool
     can_approve: bool
     can_read_employees: bool
+    can_reopen: bool = False  # Stage O: the CHRO reopens a finalized budget for revision
 
 
 class CycleRead(CycleSummary):

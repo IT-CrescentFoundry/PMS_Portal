@@ -112,6 +112,12 @@ employee is denied. No salary is seeded or written to test artifacts.
 API helpers shared by the specs (`apiAs`, `ok`, `findRunCycle`,
 `publishDemoQuarter`) live in `e2e/helpers.ts`.
 
+Stage O continues the same spec after the budget is approved: the budget owner
+distributes 70,000.00 to Production at Demo Plant A in the browser, the HR
+Head allows changes with a reason, the Production head's proposal is refused
+over budget and then reduced with a reason, an Admin forwards it and the CHRO
+approves it.
+
 ## How it works
 
 ```
@@ -212,6 +218,15 @@ text, never through floating point), and each proposal's explanation is the
 trace stored with the scenario, so it shows exactly what was calculated.
 Buttons (submit, approve, record the budget) appear only when the response's
 `actions` allow them.
+
+### Increment allocations
+
+`features/allocation` holds the Stage O pages: the allocation dashboard and
+final report per cycle, the distribution editor, and the department proposal
+with its review steps. Department Heads reach them through **Increment
+allocations** without any access to the Stage N budget pages. The editor sends
+percentages and amounts as typed text; the API resolves, rounds and validates
+them, and every button appears only when the response's `actions` allow it.
 
 ### Data and figures
 

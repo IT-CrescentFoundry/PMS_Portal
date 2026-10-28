@@ -76,6 +76,19 @@ to fit; and the CHRO's final approval with separation of duties. Actual
 compensation policy values (KRA bands, increment percentages, compa-ratio
 effects) await approval and are not part of the code or seed data.
 
+Stage O adds **budget distribution and allocation approval**: the budget owner
+distributes the approved company budget to plants and then to departments
+(percentages rounded down or fixed amounts, unallocated balances and rounding
+residuals shown, versioned with a reason for each revision); departments
+prepare their employees' increments from the matrix recommendations under an
+HR-set discretion policy (recommendation only until set; every change needs a
+reason; nothing over the department's budget can be submitted); an Admin
+reviews and the CHRO approves, rejects or returns each proposal, with
+separation of duties and every version kept; a dashboard and final report
+reconcile company, plant, department and employee figures. A finalized
+budget is reopened only explicitly by the CHRO, and proposals made against
+changed sources are flagged and must be refreshed and resubmitted.
+
 ## Getting Started
 
 The frontend and backend run as two local servers. Always open the portal at

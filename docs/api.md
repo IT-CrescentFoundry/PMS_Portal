@@ -175,7 +175,16 @@ Compensation and budget finalization (Stage N) add:
 | `compensation:manage` | HR_HEAD | create and edit compensation cycles, import salary baselines, calculate and submit budget scenarios (GLOBAL) |
 | `budget:read` | ADMIN, CHRO, HR_HEAD, BUDGET_USER | compensation cycles, budget decisions, scenario totals and variance (company totals need GLOBAL; scoped readers see their units) |
 | `budget:record` | BUDGET_USER | record the company-approved budget amount with a reason (GLOBAL) |
-| `budget:approve` | CHRO | approve or reject a submitted scenario as the final budget (GLOBAL) |
+| `budget:approve` | CHRO | approve or reject a submitted scenario as the final budget (GLOBAL); reopen a finalized budget for revision (Stage O) |
+
+Budget distribution and allocation approval (Stage O) add:
+
+| Capability | Roles | Allows |
+|---|---|---|
+| `budget:distribute` | BUDGET_USER | distribute the finalized company budget to plants and plant-department units (GLOBAL) |
+| `allocation:propose` | DEPT_HEAD, HR_HEAD | prepare and submit a unit's employee allocation proposal and see that unit's employee lines, within scope |
+| `allocation:review` | ADMIN | forward submitted proposals to the CHRO or return them (GLOBAL) |
+| `allocation:approve` | CHRO | approve, reject or return forwarded proposals (GLOBAL) |
 
 Score overrides use the deviation capabilities: `kpi:write` requests,
 `deviation:approve_hr` and `deviation:approve_plant` approve (two different
@@ -191,7 +200,11 @@ quarter correction request, approves their own annual result, or decides a
 correction of their own result (Stage M). The CHRO never decides a budget
 scenario they prepared or submitted, nor approves one against a budget amount
 they recorded themselves (Stage N; a database CHECK also keeps the decider
-apart from the preparer and submitter). "Available budget for the department" on a JD is
+apart from the preparer and submitter). Allocation proposals (Stage O): the
+Admin reviewer is never the preparer or submitter, the CHRO never the
+preparer, submitter or Admin reviewer (database CHECKs too), nobody reviews or
+decides a proposal containing their own increment, and a preparer can't change
+their own line. "Available budget for the department" on a JD is
 filled by HR roles (HR, HR_HEAD, CHRO, ADMIN) only. Company-wide KPIs and
 scoring policies need GLOBAL `kpi:write`.
 
@@ -489,6 +502,35 @@ Amounts and percentages are decimal strings.
 | POST | `/api/compensation/scenarios/{id}/submit` | GLOBAL `compensation:manage` | CALCULATED, not analysis only, at least one included employee, not out of date (422 lists why); one submitted scenario per cycle (409) |
 | POST | `/api/compensation/scenarios/{id}/approve` | GLOBAL `budget:approve` | `{"reason"}` (≥ 10 chars); SUBMITTED, a recorded budget (409), not the preparer, submitter or the budget's recorder (403), not out of date (422); finalizes the scenario and the cycle, supersedes the other open scenarios |
 | POST | `/api/compensation/scenarios/{id}/reject` | GLOBAL `budget:approve` | `{"reason"}` (≥ 10 chars); not the preparer or submitter (403) |
+
+### Budget distribution and allocation approval (Stage O)
+
+Approved company budget → distribution to plants and plant-department units
+→ department proposals → Admin review → CHRO approval. Only a **finalized**
+budget is distributed and allocated; a proposal never changes the scenario,
+a matrix or an annual result, and nothing is adjusted to fit a budget. Rules:
+[database-design.md](database-design.md#budget-distribution-and-employee-allocation-approval-stage-o).
+
+| Method | Path | Capability | Notes |
+|---|---|---|---|
+| POST | `/api/compensation/cycles/{id}/reopen` | GLOBAL `budget:approve` | `{"reason"}` (≥ 10 chars); FINALIZED only (409); the cycle reopens for a revised scenario and approval; nothing is overwritten |
+| GET | `/api/allocations/cycles` | budget, compensation or allocation access | cycles with `budget_finalized`, `revision_no` and the published distribution version |
+| GET | `/api/allocations/cycles/{id}` | as above | the dashboard and final report: `summary` (company figures, counts by status, stale count, excluded by reason, `reconciliation`; null for unit-scoped readers), `units` (budget, recommended, proposed, approved, remaining, latest and approved version with `stale_reasons`, `suppressed`), `excluded` employees (employee-level readers), `policy`, `distribution`, `actions`. Filters: `plant_id`, `department_id`, `status` (a proposal status or `NOT_STARTED`), `stale_only` |
+| PUT | `/api/allocations/cycles/{id}/policy` | GLOBAL `compensation:manage` | `{"mode": "RECOMMENDATION_ONLY" \| "WITH_REASON" \| "WITHIN_LIMITS", "max_increase_points"?, "max_decrease_points"?}` (limits only for WITHIN_LIMITS, 0–100, 2 decimals); 409 while a proposal is in review |
+| GET | `/api/allocations/cycles/{id}/employees` | `compensation:read` or `allocation:propose` | employee lines of each unit's latest version within scope; `plant_id`, `department_id`, `search`, `status` |
+| GET | `/api/allocations/cycles/{id}/distributions` | budget readers | versions |
+| POST | `/api/allocations/cycles/{id}/distributions` | GLOBAL `budget:distribute` | `{"revision_reason"}` (≥ 10 chars once a version is published) → 201 draft copied from the published version; one draft at a time (409); finalized budget only (409) |
+| GET | `/api/allocations/distributions/{id}` | budget readers | plants with units, amounts, exact amounts, unallocated and rounding residual, `stale_reasons`, `versions`, `actions`, `history` |
+| PUT | `/api/allocations/distributions/{id}` | GLOBAL `budget:distribute` | DRAFT only: `{"allow_mixed_methods", "note", "plants": [{"plant_id", "method": "PERCENT" \| "AMOUNT", "value", "units": [{"department_id", "method", "value"}]}]}`; 422 lists every problem (over-allocation, duplicates, unmapped units, mixed methods, values) |
+| POST | `/api/allocations/distributions/{id}/publish` | GLOBAL `budget:distribute` | validates again; supersedes the published version; audits each unit's amount before and after |
+| POST | `/api/allocations/cycles/{id}/proposals` | `allocation:propose` covering the unit | `{"plant_id", "department_id"}` → 201 the next version (values carried over where the recommendation is unchanged); one open version per unit (409); a published distribution and an included employee needed (409) |
+| GET | `/api/allocations/proposals/{id}` | readers who see the unit | the version with sources, budgets, totals (hidden for small units from budget-only readers), `policy`, `lines` and `excluded` (employee-level readers only), `stale_reasons`, `versions`, `actions`, `history` |
+| PUT | `/api/allocations/proposals/{id}` | `allocation:propose` | DRAFT only: `{"lines": [{"employee_id", "proposed_percent", "reason"}], "note"}`; checked against the policy (422) |
+| POST | `/api/allocations/proposals/{id}/refresh` | `allocation:propose` | DRAFT: bring it up to date with the current budget and distribution |
+| POST | `/api/allocations/proposals/{id}/submit` | `allocation:propose` | not stale, policy-valid and **within the unit's budget** (422 otherwise) → ADMIN_REVIEW |
+| POST | `/api/allocations/proposals/{id}/forward` | GLOBAL `allocation:review` | `{"note"?}` → CHRO_REVIEW; not stale; not the preparer or submitter, no own increment (403) |
+| POST | `/api/allocations/proposals/{id}/return` | Admin in ADMIN_REVIEW, CHRO in CHRO_REVIEW | `{"reason"}` (≥ 10 chars) → RETURNED |
+| POST | `/api/allocations/proposals/{id}/approve`, `…/reject` | GLOBAL `allocation:approve` | `{"reason"}` (≥ 10 chars); CHRO_REVIEW; approval needs a current, within-budget proposal and supersedes the unit's earlier approved version; never the preparer, submitter or Admin reviewer, never one's own increment (403) |
 
 ## Local demo accounts
 

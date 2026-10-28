@@ -15,6 +15,7 @@ from app.models import (
     BudgetScenarioStatus,
     CompensationBaseline,
     CompensationCycle,
+    CompensationCycleStatus,
     Department,
     Employee,
     Plant,
@@ -78,7 +79,10 @@ def _summary(cycle: CompensationCycle, users) -> dict[str, Any]:
                 effective_date=cycle.effective_date, cr_method=cycle.cr_method,
                 reference_label=cycle.reference_label, notes=cycle.notes,
                 finalized_at=cycle.finalized_at,
-                finalized_by=users.get(cycle.finalized_by_user_id or 0))
+                finalized_by=users.get(cycle.finalized_by_user_id or 0),
+                revision_no=cycle.revision_no, reopened_at=cycle.reopened_at,
+                reopened_by=users.get(cycle.reopened_by_user_id or 0),
+                reopen_reason=cycle.reopen_reason)
 
 
 def _variance(db: Session, scenario: BudgetScenario) -> VarianceRead | None:
@@ -123,7 +127,7 @@ def _cycle_read(db: Session, principal: Principal, cycle: CompensationCycle) -> 
     baselines = compensation.baselines(db, cycle)
     decisions = compensation.decisions(db, cycle.id)
     scenarios = compensation.scenarios(db, cycle.id)
-    users = _users(db, {cycle.finalized_by_user_id}
+    users = _users(db, {cycle.finalized_by_user_id, cycle.reopened_by_user_id}
                    | {b.imported_by_user_id for b in baselines}
                    | {d.recorded_by_user_id for d in decisions}
                    | {u for s in scenarios for u in (s.calculated_by_user_id, s.submitted_by_user_id,
@@ -154,7 +158,9 @@ def _cycle_read(db: Session, principal: Principal, cycle: CompensationCycle) -> 
         actions=CycleActions(can_manage=allowed(Permission.COMPENSATION_MANAGE),
                              can_record_budget=allowed(Permission.BUDGET_RECORD),
                              can_approve=allowed(Permission.BUDGET_APPROVE),
-                             can_read_employees=allowed(Permission.COMPENSATION_READ)),
+                             can_read_employees=allowed(Permission.COMPENSATION_READ),
+                             can_reopen=allowed(Permission.BUDGET_APPROVE)
+                             and cycle.status == CompensationCycleStatus.FINALIZED),
         history=_history(db, cycle.id))
 
 
@@ -391,6 +397,15 @@ def approve(scenario_id: int, body: ReasonRequest, db: DbSession, principal: Cur
     with transaction(db):
         compensation.approve(db, principal, actor, scenario_id, body.reason)
     return _scenario_read(db, principal, compensation.get_scenario(db, principal, scenario_id))
+
+
+@router.post("/cycles/{cycle_id}/reopen", response_model=CycleRead)
+def reopen(cycle_id: int, body: ReasonRequest, db: DbSession, principal: CurrentPrincipal,
+           actor: AuditActorDep):
+    """The CHRO explicitly reopens a finalized budget for revision (Stage O)."""
+    with transaction(db):
+        compensation.reopen_budget(db, principal, actor, cycle_id, body.reason)
+    return _cycle_read(db, principal, compensation.get_cycle(db, principal, cycle_id))
 
 
 @router.post("/scenarios/{scenario_id}/reject", response_model=ScenarioRead)

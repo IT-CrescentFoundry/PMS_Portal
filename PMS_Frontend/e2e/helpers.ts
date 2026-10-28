@@ -56,10 +56,17 @@ export async function sheetIdOf(
                 data: { username, password: e2ePassword() },
         })
         expect(login.ok()).toBe(true)
-        const quarters: { id: number; quarter_number: number; status: string }[] = await (
-                await api.get('/api/kpi/quarters')
-        ).json()
-        const quarter = quarters.find((q) => q.quarter_number === quarterNumber)!
+        const quarters: {
+                id: number
+                quarter_number: number
+                status: string
+                cycle_code: string
+        }[] = await (await api.get('/api/kpi/quarters')).json()
+        // The demo cycle's quarter: per-run cycles ("E2E-…") start on the same date,
+        // so the list order alone doesn't tell them apart.
+        const quarter = quarters.find(
+                (q) => q.quarter_number === quarterNumber && !q.cycle_code.startsWith('E2E'),
+        )!
         const sheets: {
                 rows: {
                         assignment: { employee: { employee_code: string } }

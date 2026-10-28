@@ -11,6 +11,7 @@ import {
         FilePen,
         FileText,
         GitPullRequestArrow,
+        HandCoins,
         Grid3x3,
         LayoutDashboard,
         ListChecks,
@@ -26,6 +27,7 @@ import {
 import {
         canApproveDeviationAsHR,
         canApproveDeviationAsPlant,
+        canReadAllocations,
         canReadAnnual,
         canReadBudget,
         canReadMatrices,
@@ -194,17 +196,26 @@ export function buildNavigation(user: CurrentUser): NavGroup[] {
                         ],
                 })
         }
+        const compensation: NavItem[] = []
         if (canReadBudget(user)) {
+                compensation.push({
+                        label: 'Compensation & budget',
+                        to: '/compensation',
+                        icon: Wallet,
+                })
+        }
+        if (canReadAllocations(user)) {
+                compensation.push({
+                        label: 'Increment allocations',
+                        to: '/allocations',
+                        icon: HandCoins,
+                })
+        }
+        if (compensation.length) {
                 const at = groups.findIndex((g) => g.label === 'Annual')
                 groups.splice(at === -1 ? groups.length : at + 1, 0, {
                         label: 'Compensation',
-                        items: [
-                                {
-                                        label: 'Compensation & budget',
-                                        to: '/compensation',
-                                        icon: Wallet,
-                                },
-                        ],
+                        items: compensation,
                 })
         }
         const account: NavItem[] = [
@@ -250,6 +261,7 @@ const SECTION_TITLES: [prefix: string, title: string][] = [
         ['/scores/quarters', 'Scoring · Employee results'],
         ['/scores/normalization', 'Scoring · Normalization'],
         ['/compensation', 'Compensation · Budget'],
+        ['/allocations', 'Compensation · Allocations'],
         ['/annual/deviations', 'Annual · Deviations'],
         ['/annual', 'Annual · Annual results'],
         ['/my/kpi-sheets', 'Account · My KPI sheets'],

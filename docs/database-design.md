@@ -836,6 +836,191 @@ Cycle-level actions need GLOBAL scope. Matrix authoring and approval keep the
 Stage K rules (`matrix:write` HR Head, `matrix:approve` CHRO;
 `matrix:read_compensation` to read CR-impact and increment matrices).
 
+## Budget distribution and employee allocation approval (Stage O)
+
+**Approved company budget → plant/department distribution → department
+allocation proposals → Admin review → CHRO approval → final allocation
+report.**
+
+### Decisions taken for this stage
+
+- **Distribution**: the budget owner prepares and publishes each
+  plant/department distribution version directly (versioned, audited, a
+  reason for every revision); no separate approval. The CHRO sees each
+  department's distributed budget when approving its allocations.
+- **Department discretion** is a per-cycle policy set by the HR Head:
+  `RECOMMENDATION_ONLY`, `WITH_REASON` or `WITHIN_LIMITS` (a change of the
+  increment % within + / − percentage-point limits). Until a policy is set,
+  departments can only confirm the matrix recommendation. Every change keeps
+  the recommendation beside it and needs a reason; nothing is final before
+  the CHRO approves it.
+- **Over budget**: a department can't submit (and the CHRO can't approve) a
+  proposal whose total exceeds the amount distributed to its unit. Nothing is
+  adjusted automatically: the department reduces within the policy, or the
+  budget owner publishes a revised distribution.
+- **Budget revision**: if an approved annual result changes after the company
+  budget was finalized (for example through a quarter correction), the
+  affected proposals are stale and can't be approved. The CHRO may explicitly
+  reopen the company budget for revision with a reason; a new scenario and
+  approval follow (Stage N), the earlier finalized scenario becomes
+  SUPERSEDED (kept, with its audit history) and departments resubmit.
+
+### Stage N verified
+
+A finalized cycle blocks only Stage N actions (cycle edits, baselines, budget
+decisions, scenarios); nothing downstream depended on the cycle being open,
+so Stage O requires a **finalized** cycle instead and no state change was
+needed for distribution or allocation. Two Stage N changes were made:
+
+- **Explicit budget revision** (above): `compensation_cycles` gains
+  `revision_no` and the latest reopening (`reopened_by_user_id`,
+  `reopened_at`, `reopen_reason`); `FINALIZED → OPEN` only through the CHRO's
+  explicit action, and approving a revised scenario supersedes the earlier
+  finalized one. A finalized budget is never reopened or overwritten
+  implicitly.
+- **Primary attribution of excluded employees**: an employee who is only in
+  the salary baseline (no approved annual result, so always excluded) is now
+  attributed to their primary assignment on the cycle's effective date, so
+  the department sees the exclusion and its reason. Frozen scenarios are not
+  changed.
+
+The four Stage N defaults are applied unchanged in Stage O: HR's
+ineligibility outranks a missing annual result; budget-only readers see
+totals but no employee lines; a unit's proposal amounts are hidden from them
+when fewer than 3 employees are included; excluded employees stay listed with
+their reasons for authorized readers.
+
+### Relationships
+
+```
+compensation_cycles 1─┬─* budget_scenarios (one FINALIZED: the approved budget's scenario)
+                      ├─* budget_decisions (the approved amount it was approved against)
+                      ├─* budget_distributions ──1─* budget_distribution_lines
+                      │      (scenario_id, budget_decision_id)   PLANT line 1─* UNIT lines
+                      └─* allocation_proposals ──1─* allocation_proposal_lines
+                             (plant, department, version;          (employee, scenario line,
+                              scenario, decision, distribution,     annual result)
+                              distribution line, previous version)
+```
+
+Annual results, matrices, scenarios (calculated increments), budget decisions,
+distributions and proposals stay separate rows linked by foreign keys; a
+proposal never changes a scenario line, a matrix or an annual result.
+
+### Distribution
+
+| Status | Meaning |
+|---|---|
+| `DRAFT` | the budget owner's working version (one per cycle); always distributes the current finalized budget |
+| `PUBLISHED` | in force (one per cycle); departments propose against it |
+| `SUPERSEDED` | replaced by a later published version; kept |
+
+Lines: one PLANT line per plant and one UNIT line per plant-department under
+its plant line, each by `PERCENT` (of its parent: the company budget for a
+plant, the plant's amount for a unit; up to 4 decimals) or `AMOUNT` (fixed,
+2 decimals). Siblings use one method unless the version allows mixed methods.
+
+- A percentage amount is **rounded down** to the cent, so allocations never
+  exceed their parent; the exact amount is kept and the cents left over are
+  shown as the **rounding residual**.
+- **Unallocated** = parent amount − the sum of its children (company budget −
+  plants; plant − its units). It includes the rounding residual and is
+  shown, never redistributed.
+- Children may not exceed their parent (422); a plant or a unit appears once
+  per version (validation and a unique key); only one version is published.
+- Publishing requires a finalized budget and records the source scenario,
+  budget decision and amount, the revision reason (from version 2) and every
+  unit's amount before and after.
+
+### Department allocation proposals
+
+One proposal per plant-department unit, versioned. Its lines are the
+**included** employees of the finalized scenario attributed to the unit (the
+primary unit; an employee is in exactly one unit, so nobody is counted twice),
+each with the recommendation (increment %, amount) and the proposal. Excluded
+employees are shown from the scenario with their reasons and get no line.
+
+| Status | Who | Next |
+|---|---|---|
+| `DRAFT` | `allocation:propose` covering the unit (Department Head, HR Head) | edit; refresh from the current sources; submit |
+| `ADMIN_REVIEW` | submitted (within budget, policy-valid, not stale) | Admin forwards or returns |
+| `CHRO_REVIEW` | forwarded by an Admin | CHRO approves, rejects or returns |
+| `APPROVED` | CHRO | final; a later approved version of the unit supersedes it |
+| `REJECTED`, `RETURNED` | CHRO / Admin or CHRO, with a reason | closed; the department starts the next version |
+| `SUPERSEDED` | an approved version replaced by a later approved one | kept |
+
+- **Proposed values**: the department enters the increment % (2 decimals);
+  amount = salary × % ÷ 100, half up to the cent (as in Stage N); new salary =
+  salary + amount. The recommendation is stored beside it and never changes.
+- **Policy**: `RECOMMENDATION_ONLY` (or none) — proposed = recommended;
+  `WITH_REASON` — any % ≥ 0; `WITHIN_LIMITS` — recommended − decrease ≤
+  proposed ≤ recommended + increase (percentage points). Any departure needs
+  a reason (≥ 10 characters; also a database CHECK). The policy in force is
+  copied onto the proposal when submitted.
+- **Own increment**: a preparer can't change their own line (it stays at the
+  recommendation); an Admin or the CHRO can't review or decide a proposal
+  that contains their own increment.
+- **Separation of duties**: the Admin reviewer is not the submitter; the CHRO
+  is not the preparer, submitter or Admin reviewer (API, and database CHECKs
+  for submitter and reviewer).
+- **Stale** (computed, never by editing history): the cycle is under budget
+  revision; the finalized scenario is no longer the one the proposal used; the
+  unit's published amount differs from the proposal's budget; or an employee's
+  annual result is no longer the approved, current one. A stale proposal
+  can't be submitted, forwarded or approved; a draft is refreshed from the
+  current sources (values kept where the recommendation is unchanged), a
+  closed version is followed by a new version.
+- One open version (DRAFT / ADMIN_REVIEW / CHRO_REVIEW) and one APPROVED
+  version per unit, enforced by generated unique keys.
+
+### Report and reconciliation
+
+Per cycle: company budget; distributed to plants and to units; unallocated at
+each level with the rounding residual; recommended, proposed and approved
+totals; counts by status; stale proposals; excluded employees by reason. Per
+unit: distributed amount, recommended, proposed and approved totals, the
+difference to the unit budget and the latest proposal's status. The
+reconciliation confirms that the unit totals add up to the company totals,
+that every included employee of the scenario belongs to exactly one unit and
+that no employee is in two approved proposals.
+
+### Visibility
+
+| Reader | Sees |
+|---|---|
+| `compensation:read` (Admin, CHRO, HR Head) | everything, with employee lines |
+| `allocation:propose` (Department Head, scoped) | their units: budget, employee lines (salary, recommendation, proposal), excluded employees, history |
+| `budget:read` only (budget owner) | distribution, unit and company totals; a unit's recommended/proposed/approved amounts hidden when fewer than 3 employees are included; no employee lines |
+
+The audit trail records distribution amounts (budgets, not pay) and, for
+proposals, percentages and counts only, never employee amounts or salaries.
+
+### Tables (migration `e30ac2589fba`)
+
+| Table / change | Purpose | Key rules |
+|---|---|---|
+| `budget_distributions` | a distribution version: source scenario, budget decision and amount, totals, revision reason, who created and published it | unique (cycle, version_no); one DRAFT and one PUBLISHED per cycle via generated keys; CHECK budget ≥ 0 |
+| `budget_distribution_lines` | PLANT and UNIT allocations: method, percentage, amount (rounded down) and exact amount, parent line | unique (distribution, plant, department-or-0) via a generated key; CHECKs on the method/value and level/parent shape; amount ≥ 0 |
+| `allocation_proposals` | one version of a unit's proposal with its sources, policy copy, totals and every workflow actor and time | unique (cycle, plant, department, version); one open and one APPROVED version per unit via generated keys; CHECKs: Admin reviewer ≠ submitter, decider ≠ submitter and reviewer; unit budget ≥ 0 |
+| `allocation_proposal_lines` | an included employee: scenario line, annual result, salary, recommended and proposed % and amounts, reason | unique (proposal, employee); CHECK a departure has a reason; CHECK proposed amount ≥ 0 |
+| `compensation_cycles` + `revision_no`, `reopened_by_user_id`, `reopened_at`, `reopen_reason`, `allocation_policy` | explicit budget revisions and the discretion policy | nullable or defaulted; existing rows unchanged |
+
+Migration effects (reviewed before applying): four new tables and five new
+nullable or defaulted columns with their indexes and foreign keys; nothing
+existing is altered or dropped. `downgrade()` removes them and is never run
+without approval. Applied to `pms`, `pms_test` and `pms_e2e_test`.
+
+### Permissions (added to the role map)
+
+| Permission | Roles | Allows |
+|---|---|---|
+| `budget:distribute` | BUDGET_USER | create, edit and publish distribution versions (GLOBAL) |
+| `allocation:propose` | DEPT_HEAD, HR_HEAD | prepare, refresh and submit proposals for the units in scope, and see their employee lines |
+| `allocation:review` | ADMIN | forward submitted proposals to the CHRO or return them (GLOBAL) |
+| `allocation:approve` | CHRO | approve, reject or return forwarded proposals (GLOBAL) |
+| `budget:approve` (Stage N) | CHRO | also reopens a finalized budget for revision |
+| `compensation:manage` (Stage N) | HR_HEAD | also sets the discretion policy (GLOBAL) |
+
 ## Deferred, by design
 
 - Salary-band tables, eligibility rules, cross-plant apportionment of

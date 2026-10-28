@@ -6,11 +6,16 @@ import { AnnualDeviationsPage } from '../features/annual/AnnualDeviationsPage'
 import { AnnualEmployeePage } from '../features/annual/AnnualEmployeePage'
 import { AnnualPage } from '../features/annual/AnnualPage'
 import {
+        RequireAllocationAccess,
         RequireAnnualAccess,
         RequireAuth,
         RequireBudgetAccess,
         RequireOrgAccess,
 } from '../features/auth/RequireAuth'
+import { AllocationCyclesPage } from '../features/allocation/AllocationCyclesPage'
+import { AllocationOverviewPage } from '../features/allocation/AllocationOverviewPage'
+import { DistributionPage } from '../features/allocation/DistributionPage'
+import { ProposalPage } from '../features/allocation/ProposalPage'
 import { BaselineUploadPage } from '../features/compensation/BaselineUploadPage'
 import { CompensationCyclePage } from '../features/compensation/CompensationCyclePage'
 import { CompensationCyclesPage } from '../features/compensation/CompensationCyclesPage'
@@ -209,6 +214,24 @@ export function AppRoutes() {
                                         <Route
                                                 path="compensation/scenarios/:scenarioId"
                                                 element={<ScenarioPage />}
+                                        />
+                                </Route>
+                                <Route element={<RequireAllocationAccess />}>
+                                        <Route
+                                                path="allocations"
+                                                element={<AllocationCyclesPage />}
+                                        />
+                                        <Route
+                                                path="allocations/cycles/:cycleId"
+                                                element={<AllocationOverviewPage />}
+                                        />
+                                        <Route
+                                                path="allocations/distributions/:distributionId"
+                                                element={<DistributionPage />}
+                                        />
+                                        <Route
+                                                path="allocations/proposals/:proposalId"
+                                                element={<ProposalPage />}
                                         />
                                 </Route>
                                 {/* Also reachable by employees for their own record (the API decides). */}

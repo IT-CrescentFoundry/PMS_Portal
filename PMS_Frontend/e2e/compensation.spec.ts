@@ -20,6 +20,12 @@
  *   - the budget owner records an approved budget of 70,000.00 (overspend
  *     2,000.00) and sees totals but no employee amounts;
  *   - the CHRO approves the final budget; increments are never adjusted.
+ *
+ * Stage O continues with the finalized budget: the budget owner distributes
+ * 70,000.00 to Production at Demo Plant A; the HR Head allows changes with a
+ * reason; the Production head's proposal (recommendation 72,000.00) can't be
+ * submitted over budget, so DEMO0005 is proposed at 11.5 % (69,000.00) with
+ * a reason; an Admin forwards it and the CHRO approves it.
  */
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import {
@@ -52,6 +58,8 @@ let effectiveDate = ''
 const matrices: { matrixId: number; versionId: number; code: string }[] = []
 let cyclePath = ''
 let scenarioPath = ''
+let allocationsPath = ''
+let proposalPath = ''
 let consoleErrors: string[] = []
 
 test.describe.configure({ mode: 'serial' })
@@ -414,6 +422,109 @@ test('the CHRO approves the final budget', async ({ page }) => {
         await signOut(page)
 })
 
+test('the budget owner distributes the approved budget to a department', async ({ page }) => {
+        await signIn(page, 'demo.budget')
+        await page
+                .getByRole('navigation', { name: 'Main' })
+                .getByRole('link', { name: 'Increment allocations' })
+                .click()
+        await page.getByRole('link', { name: `E2E compensation ${run.cycleId}` }).click()
+        allocationsPath = new URL(page.url()).pathname
+        await expect(page.getByText('Company budget approved')).toBeVisible()
+        await page.getByRole('button', { name: 'Distribute the budget' }).click()
+        await expect(
+                page.getByRole('heading', { level: 1, name: 'Budget distribution version 1' }),
+        ).toBeVisible()
+        await page.getByLabel('Add a plant').selectOption({ label: 'Demo Plant A' })
+        await page.getByRole('button', { name: 'Add', exact: true }).click()
+        await page.getByLabel('Demo Plant A: amount').fill('70000')
+        await page
+                .getByLabel('Add a department of Demo Plant A')
+                .selectOption({ label: 'Production' })
+        await page.getByLabel('Production — Demo Plant A: amount').fill('70000')
+        await page.getByRole('button', { name: 'Save the draft' }).click()
+        await expect(page.getByText('Draft saved.')).toBeVisible()
+        await page.getByRole('button', { name: 'Publish this version' }).click()
+        await expect(
+                page.getByText('Published. Departments now propose against this version.'),
+        ).toBeVisible()
+        await signOut(page)
+})
+
+test('the HR Head allows changes with a reason', async ({ page }) => {
+        await signIn(page, 'demo.hrhead')
+        await page.goto(allocationsPath)
+        await expect(page.getByText('Recommendation only (no policy set yet)')).toBeVisible()
+        await page.getByRole('button', { name: 'Change the policy' }).click()
+        await page.getByLabel('Policy', { exact: true }).selectOption('WITH_REASON')
+        await page.getByRole('button', { name: 'Save the policy' }).click()
+        await expect(page.getByText('Changes with a reason', { exact: true })).toBeVisible()
+        await signOut(page)
+})
+
+test('the department proposes within its budget, with a reason for the change', async ({
+        page,
+}) => {
+        await signIn(page, 'demo.production.head.a')
+        await page
+                .getByRole('navigation', { name: 'Main' })
+                .getByRole('link', { name: 'Increment allocations' })
+                .click()
+        await page.getByRole('link', { name: `E2E compensation ${run.cycleId}` }).click()
+        const units = page.getByRole('table', { name: 'Department allocations' })
+        await expect(units.getByRole('row')).toHaveCount(2) // header + Production only
+        await units.getByRole('button', { name: 'Start the proposal' }).click()
+        await expect(
+                page.getByRole('heading', {
+                        level: 1,
+                        name: 'Production — Demo Plant A: allocation version 1',
+                }),
+        ).toBeVisible()
+        proposalPath = new URL(page.url()).pathname
+        // The matrix recommendation (72,000.00) exceeds the 70,000.00 budget.
+        await page.getByRole('button', { name: 'Submit for review' }).click()
+        await expect(
+                page.getByText(/exceeds the unit's distributed budget of 70000 by 2000/),
+        ).toBeVisible()
+        await page.getByLabel('Proposed % for Sunil Demo-Yadav').fill('11.5')
+        await page.getByLabel('Reason for Sunil Demo-Yadav').fill('E2E: fits the department budget')
+        await page.getByRole('button', { name: 'Save the draft' }).click()
+        await expect(page.getByText('Draft saved.')).toBeVisible()
+        await expect(page.getByText('Remaining budget')).toBeVisible()
+        await page.getByRole('button', { name: 'Submit for review' }).click()
+        await expect(page.getByText('Submitted for Admin review.')).toBeVisible()
+        await signOut(page)
+})
+
+test('an Admin forwards the proposal and the CHRO approves it', async ({ page }) => {
+        await signIn(page, 'demo.admin')
+        await page.goto(proposalPath)
+        await expect(page.getByRole('button', { name: 'Approve…' })).toHaveCount(0)
+        await page.getByLabel('Review note for the CHRO (optional)').fill('E2E: checked')
+        await page.getByRole('button', { name: 'Forward to the CHRO' }).click()
+        await expect(page.getByText('Forwarded to the CHRO.')).toBeVisible()
+        await signOut(page)
+
+        await signIn(page, 'demo.chro')
+        await page.goto(proposalPath)
+        const lines = page.getByRole('table', { name: 'Employee allocations' })
+        await expect(lines.getByRole('row', { name: /Sunil Demo-Yadav/ })).toContainText('11.50 %')
+        await page.getByRole('button', { name: 'Approve…' }).click()
+        await page
+                .getByLabel('Reason for approving these allocations')
+                .fill('E2E: within the department budget')
+        await page.getByRole('button', { name: 'Approve the allocations' }).click()
+        await expect(page.getByText('Approved.', { exact: true })).toBeVisible()
+        await page.goto(allocationsPath)
+        await expect(page.getByText('Approved by the CHRO')).toBeVisible()
+        await expect(
+                page.getByRole('table', { name: 'Department allocations' }).getByRole('row', {
+                        name: /Production — Demo Plant A/,
+                }),
+        ).toContainText('69,000.00')
+        await signOut(page)
+})
+
 test('roles without budget access cannot open compensation', async ({ page }) => {
         await signIn(page, 'demo.employee')
         await expect(
@@ -422,6 +533,8 @@ test('roles without budget access cannot open compensation', async ({ page }) =>
                         .getByRole('link', { name: 'Compensation & budget' }),
         ).toHaveCount(0)
         await page.goto('/compensation')
+        await expect(page.getByRole('heading', { level: 1, name: 'Access denied' })).toBeVisible()
+        await page.goto('/allocations')
         await expect(page.getByRole('heading', { level: 1, name: 'Access denied' })).toBeVisible()
         const api = await apiAs('demo.employee')
         expect((await api.get('/api/compensation/cycles')).status()).toBe(403)

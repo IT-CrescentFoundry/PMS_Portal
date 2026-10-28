@@ -86,6 +86,17 @@ class CompensationCycle(TimestampMixin, Base):
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     finalized_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Stage O. Explicit budget revisions: the CHRO reopens a finalized budget
+    # (FINALIZED -> OPEN) with a reason; the latest reopening is kept here,
+    # every one in the audit trail.
+    revision_no: Mapped[int] = mapped_column(SmallInteger, default=0, server_default=text("0"))
+    reopened_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime)
+    reopen_reason: Mapped[str | None] = mapped_column(String(1000))
+    # Stage O. How far departments may depart from the matrix recommendation
+    # (HR Head): {"mode", "max_increase_points", "max_decrease_points",
+    # "version", "set_by_user_id", "set_at"}. NULL: recommendation only.
+    allocation_policy: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     pms_cycle: Mapped[PmsCycle] = relationship()
 

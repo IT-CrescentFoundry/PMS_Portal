@@ -53,9 +53,11 @@ from app.models import (
     CompensationCycle,
     CompensationCycleStatus,
     Employee,
+    EmployeeAssignment,
     Matrix,
     MatrixVersion,
     MatrixVersionStatus,
+    PlantDepartment,
     PmsCycle,
 )
 from app.services import compensation_calc as calc
@@ -172,7 +174,7 @@ def _locked_cycle(db: Session, cycle_id: int) -> CompensationCycle:
 def _require_open(cycle: CompensationCycle) -> None:
     if cycle.status != CompensationCycleStatus.OPEN:
         raise ConflictError(f"{cycle.name} is finalized; its budget and scenarios no longer "
-                            "change.")
+                            "change unless the CHRO reopens the budget for revision.")
 
 
 def update_cycle(db: Session, principal: Principal, actor: AuditActor, cycle_id: int,
@@ -559,9 +561,32 @@ def _proposals(db: Session, cycle: CompensationCycle, baseline: CompensationBase
     population = sorted(set(annual) | set(rows))
     if employee_ids is not None:
         population = [e for e in population if e in set(employee_ids)]
+    homes = primary_units(db, [e for e in population if e not in annual], cycle.effective_date)
     name = cycle.pms_cycle.name
-    return [calc.propose(resolver, cycle.cr_method, e, annual.get(e), rows.get(e), name)
+    return [calc.propose(resolver, cycle.cr_method, e, annual.get(e), rows.get(e), name,
+                         homes.get(e))
             for e in population]
+
+
+def primary_units(db: Session, employee_ids: Sequence[int],
+                  on: date) -> dict[int, tuple[int, int]]:
+    """The primary unit (plant, department) of each employee on a date: one
+    unit per person, as everywhere else (Stage N/O attribution rule)."""
+    if not employee_ids:
+        return {}
+    found: dict[int, tuple[int, int]] = {}
+    for emp_id, plant_id, dept_id in db.execute(
+            select(EmployeeAssignment.employee_id, PlantDepartment.plant_id,
+                   PlantDepartment.department_id)
+            .join(PlantDepartment, EmployeeAssignment.plant_department_id == PlantDepartment.id)
+            .where(EmployeeAssignment.employee_id.in_(employee_ids),
+                   EmployeeAssignment.is_primary,
+                   EmployeeAssignment.effective_from <= on,
+                   (EmployeeAssignment.effective_to.is_(None))
+                   | (EmployeeAssignment.effective_to >= on))
+            .order_by(EmployeeAssignment.effective_from)):
+        found[emp_id] = (plant_id, dept_id)
+    return found
 
 
 def summarize(proposals: Sequence[calc.Proposal]) -> dict[str, Any]:
@@ -776,22 +801,29 @@ def variance(total: Decimal, decision: BudgetDecision | None) -> dict[str, Any] 
             "overspend": rules.decimal_text(max(-difference, Decimal(0)))}
 
 
+def annual_changes(db: Session, scenario: BudgetScenario) -> tuple[set[int], set[int]]:
+    """Employees whose approved annual result changed since the scenario was
+    calculated: (used results no longer approved and current, employees with a
+    newer approved result)."""
+    used = {line.employee_id: line.annual_result_id for line in scenario.lines}
+    annual_ids = [r for r in used.values() if r]
+    outdated = set(db.scalars(select(AnnualResult.employee_id).where(
+        AnnualResult.id.in_(annual_ids or [0]),
+        (AnnualResult.status != AnnualResultStatus.PUBLISHED)
+        | AnnualResult.recalculation_required)))
+    current = _annual_employees(db, scenario.cycle)
+    newer = {e for e, r in current.items() if used.get(e) != r.id}
+    return outdated, newer
+
+
 def stale_reasons(db: Session, scenario: BudgetScenario) -> list[str]:
     """Why a scenario no longer reflects the approved inputs (checked before it
     is submitted or approved)."""
     reasons = []
-    annual_ids = [line.annual_result_id for line in scenario.lines if line.annual_result_id]
-    changed = db.scalar(select(func.count()).select_from(AnnualResult).where(
-        AnnualResult.id.in_(annual_ids or [0]),
-        (AnnualResult.status != AnnualResultStatus.PUBLISHED)
-        | AnnualResult.recalculation_required))
-    if changed:
-        reasons.append(f"{changed} annual result(s) it used are no longer the approved, current "
-                       "versions; calculate a new scenario.")
-    cycle = scenario.cycle
-    current = _annual_employees(db, cycle)
-    used = {line.employee_id: line.annual_result_id for line in scenario.lines}
-    newer = [e for e, r in current.items() if used.get(e) != r.id]
+    outdated, newer = annual_changes(db, scenario)
+    if outdated:
+        reasons.append(f"{len(outdated)} annual result(s) it used are no longer the approved, "
+                       "current versions; calculate a new scenario.")
     if newer:
         reasons.append(f"{len(newer)} employee(s) have a newer approved annual result; calculate a "
                        "new scenario.")
@@ -877,7 +909,6 @@ def approve(db: Session, principal: Principal, actor: AuditActor, scenario_id: i
     if reasons:
         raise ValidationFailedError([Issue(r, "scenario") for r in reasons])
     result = variance(scenario.total_increment, decision)
-    scenario.status = BudgetScenarioStatus.FINALIZED
     scenario.decided_by_user_id = principal.user_id
     scenario.decided_at = func.now()
     scenario.decision_reason = reason.strip()[:1000]
@@ -885,9 +916,12 @@ def approve(db: Session, principal: Principal, actor: AuditActor, scenario_id: i
     others = []
     for other in db.scalars(select(BudgetScenario).where(
             BudgetScenario.cycle_id == cycle.id, BudgetScenario.id != scenario.id,
-            BudgetScenario.status.in_(OPEN_SCENARIOS))):
+            BudgetScenario.status.in_((*OPEN_SCENARIOS, BudgetScenarioStatus.FINALIZED)))):
+        # Includes the budget finalized before a revision (Stage O): kept as history.
         other.status = BudgetScenarioStatus.SUPERSEDED
         others.append(other.scenario_no)
+    db.flush()  # free the cycle's one-FINALIZED key before taking it
+    scenario.status = BudgetScenarioStatus.FINALIZED
     cycle.status = CompensationCycleStatus.FINALIZED
     cycle.finalized_by_user_id = principal.user_id
     cycle.finalized_at = func.now()
@@ -912,3 +946,45 @@ def reject(db: Session, principal: Principal, actor: AuditActor, scenario_id: in
            f"Rejected scenario {scenario.scenario_no} '{scenario.name}' of {cycle.code}",
            reason=scenario.decision_reason)
     return scenario
+
+
+# --- budget revision (Stage O) -----------------------------------------------------------------
+
+def finalized_scenario(db: Session, cycle_id: int) -> BudgetScenario | None:
+    """The scenario of the approved company budget (None while none is finalized)."""
+    return db.scalars(select(BudgetScenario).where(
+        BudgetScenario.cycle_id == cycle_id,
+        BudgetScenario.status == BudgetScenarioStatus.FINALIZED)).one_or_none()
+
+
+def reopen_budget(db: Session, principal: Principal, actor: AuditActor, cycle_id: int,
+                  reason: str) -> CompensationCycle:
+    """The CHRO explicitly reopens a finalized budget for revision (business
+    decision, 2026-10-28). Nothing is overwritten: the finalized scenario and
+    its budget decision stay as they are until a revised scenario is approved,
+    which supersedes them; distributions and allocation proposals made against
+    them become stale."""
+    _require(principal, Permission.BUDGET_APPROVE,
+             "Only the CHRO reopens a finalized budget for revision.")
+    cycle = _locked_cycle(db, cycle_id)
+    if cycle.status != CompensationCycleStatus.FINALIZED:
+        raise ConflictError(f"The budget of {cycle.name} is not finalized; there is nothing to "
+                            "reopen.")
+    if len(reason.strip()) < 10:
+        raise ValidationFailedError([Issue("Give the reason for the revision (at least 10 "
+                                           "characters).", "reason")])
+    scenario = finalized_scenario(db, cycle.id)
+    cycle.status = CompensationCycleStatus.OPEN
+    cycle.revision_no += 1
+    cycle.reopened_by_user_id = principal.user_id
+    cycle.reopened_at = func.now()
+    cycle.reopen_reason = reason.strip()[:1000]
+    db.flush()
+    _audit(db, actor, ("compensation_cycle", cycle.id), "compensation_cycle.reopen",
+           f"Reopened the budget of {cycle.code} for revision {cycle.revision_no}",
+           reason=cycle.reopen_reason,
+           changes={"status": {"before": "FINALIZED", "after": "OPEN"},
+                    "revision_no": cycle.revision_no,
+                    "finalized_scenario_id": scenario.id if scenario else None,
+                    "budget_decision_id": scenario.budget_decision_id if scenario else None})
+    return cycle

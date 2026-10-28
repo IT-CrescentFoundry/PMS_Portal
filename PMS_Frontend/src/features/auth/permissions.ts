@@ -28,6 +28,10 @@ export const PERMISSION_COMPENSATION_MANAGE = 'compensation:manage'
 export const PERMISSION_BUDGET_READ = 'budget:read'
 export const PERMISSION_BUDGET_RECORD = 'budget:record'
 export const PERMISSION_BUDGET_APPROVE = 'budget:approve'
+export const PERMISSION_BUDGET_DISTRIBUTE = 'budget:distribute'
+export const PERMISSION_ALLOCATION_PROPOSE = 'allocation:propose'
+export const PERMISSION_ALLOCATION_REVIEW = 'allocation:review'
+export const PERMISSION_ALLOCATION_APPROVE = 'allocation:approve'
 
 /** Roles that may fill HR-only JD fields (available budget). Mirrors the API. */
 const HR_ROLE_CODES = new Set(['HR', 'HR_HEAD', 'CHRO', 'ADMIN'])
@@ -127,6 +131,18 @@ export function canManageCompensation(user: CurrentUser): boolean {
 /** Employee-level compensation (salaries, proposals and their explanations). */
 export function canReadCompensation(user: CurrentUser): boolean {
         return has(user, PERMISSION_COMPENSATION_READ)
+}
+
+/** Budget distribution and increment allocations: budget readers, compensation
+ * roles, Department Heads preparing proposals, Admin reviewers and the CHRO. */
+export function canReadAllocations(user: CurrentUser): boolean {
+        return [
+                PERMISSION_BUDGET_READ,
+                PERMISSION_COMPENSATION_READ,
+                PERMISSION_ALLOCATION_PROPOSE,
+                PERMISSION_ALLOCATION_REVIEW,
+                PERMISSION_ALLOCATION_APPROVE,
+        ].some((p) => has(user, p))
 }
 
 /** May open their own employee record. */

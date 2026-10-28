@@ -72,6 +72,16 @@ class Permission(StrEnum):
     BUDGET_RECORD = "budget:record"
     # Approve or reject the final budget scenario (CHRO).
     BUDGET_APPROVE = "budget:approve"
+    # Stage O. Distribute the finalized company budget to plants and
+    # plant-department units (budget owner, GLOBAL).
+    BUDGET_DISTRIBUTE = "budget:distribute"
+    # Prepare and submit a unit's employee allocation proposal, and see that
+    # unit's employee-level recommendations (Department Head, HR Head; scoped).
+    ALLOCATION_PROPOSE = "allocation:propose"
+    # Review submitted allocation proposals: forward to the CHRO or return (Admin).
+    ALLOCATION_REVIEW = "allocation:review"
+    # Approve, reject or return allocation proposals (CHRO).
+    ALLOCATION_APPROVE = "allocation:approve"
 
 
 P = Permission
@@ -79,26 +89,30 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     "ADMIN": frozenset({
         P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.MATRIX_READ,
         P.MATRIX_READ_COMPENSATION, P.ANNUAL_READ, P.ANNUAL_DEVIATION_REQUEST,
-        P.COMPENSATION_READ, P.BUDGET_READ,
+        P.COMPENSATION_READ, P.BUDGET_READ, P.ALLOCATION_REVIEW,
     }),
     "CHRO": frozenset({
         P.ORG_READ, P.JD_APPROVE, P.QUARTER_START, P.DEVIATION_APPROVE_HR, P.MATRIX_READ,
         P.MATRIX_READ_COMPENSATION, P.MATRIX_APPROVE, P.SCORE_PUBLISH, P.ANNUAL_READ,
         P.ANNUAL_APPROVE, P.QUARTER_CORRECTION_APPROVE, P.COMPENSATION_READ, P.BUDGET_READ,
-        P.BUDGET_APPROVE,
+        P.BUDGET_APPROVE, P.ALLOCATION_APPROVE,
     }),
     "HR_HEAD": frozenset({
         P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.QUARTER_START, P.DEVIATION_APPROVE_HR,
         P.MATRIX_READ, P.MATRIX_READ_COMPENSATION, P.MATRIX_WRITE, P.SCORE_PUBLISH,
         P.ANNUAL_READ, P.QUARTER_CORRECTION_REQUEST, P.COMPENSATION_READ,
-        P.COMPENSATION_MANAGE, P.BUDGET_READ,
+        P.COMPENSATION_MANAGE, P.BUDGET_READ, P.ALLOCATION_PROPOSE,
     }),
     "HR": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ, P.ANNUAL_READ}),
     "PLANT_HEAD": frozenset(
         {P.ORG_READ, P.JD_AUTHORISE, P.DEVIATION_APPROVE_PLANT, P.MATRIX_READ}
     ),
-    "DEPT_HEAD": frozenset({P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ}),
-    "BUDGET_USER": frozenset({P.ORG_READ, P.MATRIX_READ, P.BUDGET_READ, P.BUDGET_RECORD}),
+    "DEPT_HEAD": frozenset(
+        {P.ORG_READ, P.JD_WRITE, P.KPI_WRITE, P.MATRIX_READ, P.ALLOCATION_PROPOSE}
+    ),
+    "BUDGET_USER": frozenset(
+        {P.ORG_READ, P.MATRIX_READ, P.BUDGET_READ, P.BUDGET_RECORD, P.BUDGET_DISTRIBUTE}
+    ),
     "EMPLOYEE": frozenset({P.SELF_READ}),
 }
 

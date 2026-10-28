@@ -169,8 +169,9 @@ def _decimal(value: Any, label: str, version: MatrixVersion) -> Decimal:
 
 def propose(resolver: Resolver, method: CompaRatioMethod, employee_id: int,
             annual: AnnualResult | None, row: CompensationBaselineRow | None,
-            pms_cycle_name: str) -> Proposal:
-    """One employee's proposal, or the reason they are excluded."""
+            pms_cycle_name: str, home: tuple[int, int] | None = None) -> Proposal:
+    """One employee's proposal, or the reason they are excluded. `home` is the
+    primary unit of an employee without an annual result (attribution only)."""
     p = Proposal(employee_id, annual=annual, row=row)
     if annual is not None:
         p.plant_id, p.department_id = annual.plant_id, annual.department_id
@@ -178,6 +179,8 @@ def propose(resolver: Resolver, method: CompaRatioMethod, employee_id: int,
                              "final_score": rules.decimal_text(annual.final_score),
                              "calculated_score": rules.decimal_text(annual.calculated_score),
                              "adjusted_score": rules.jsonable(annual.adjusted_score)}
+    elif home is not None:
+        p.plant_id, p.department_id = home
     if row is not None:
         p.trace["baseline"] = {"row": row.source_row, "grade": row.grade, "eligible": row.eligible,
                                "current_salary": rules.jsonable(row.current_salary),
